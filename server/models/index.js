@@ -50,6 +50,13 @@ const Pointage = require('./Pointage')(sequelize);
 const SuiviMaintenance = require('./SuiviMaintenance')(sequelize);
 const Conversation = require('./Conversation')(sequelize);
 const Message = require('./Message')(sequelize);
+const Plainte = require('./Plainte');
+const TaskPro = require('./TaskPro');
+const CommentaireTask = require('./CommentaireTask');
+const File = require('./File');
+const Folder = require('./Folder');
+const Circuit = require('./Circuit');
+const Validation = require('./Validation');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -58,6 +65,72 @@ Problematique.belongsTo(User, { foreignKey: 'rapporteur_id', as: 'rapporteur' })
 
 User.hasMany(Problematique, { foreignKey: 'assigne_id', as: 'ProblematiquesAssigne' });
 Problematique.belongsTo(User, { foreignKey: 'assigne_id', as: 'assigne' });
+
+// Associations pour les plaintes
+User.hasMany(Plainte, { foreignKey: 'rapporteur_id', as: 'PlaintesRapporteur' });
+Plainte.belongsTo(User, { foreignKey: 'rapporteur_id', as: 'rapporteur' });
+
+User.hasMany(Plainte, { foreignKey: 'assignee_id', as: 'PlaintesAssignee' });
+Plainte.belongsTo(User, { foreignKey: 'assignee_id', as: 'assignee' });
+
+User.hasMany(Plainte, { foreignKey: 'employe_id', as: 'PlaintesEmploye' });
+Plainte.belongsTo(User, { foreignKey: 'employe_id', as: 'employe' });
+
+Plainte.belongsTo(Chambre, { foreignKey: 'chambre_id', as: 'chambre' });
+Plainte.belongsTo(Departement, { foreignKey: 'departement_id', as: 'departement' });
+Plainte.belongsTo(SousDepartement, { foreignKey: 'sous_departement_id', as: 'sous_departement' });
+
+// Associations pour TaskPro
+User.hasMany(TaskPro, { foreignKey: 'createur_id', as: 'TasksProCreateur' });
+TaskPro.belongsTo(User, { foreignKey: 'createur_id', as: 'createur' });
+
+User.hasMany(TaskPro, { foreignKey: 'assignee_id', as: 'TasksProAssignee' });
+TaskPro.belongsTo(User, { foreignKey: 'assignee_id', as: 'assignee' });
+
+TaskPro.belongsTo(Departement, { foreignKey: 'departement_id', as: 'departement' });
+TaskPro.belongsTo(SousDepartement, { foreignKey: 'sous_departement_id', as: 'sous_departement' });
+
+TaskPro.hasMany(TaskPro, { foreignKey: 'tache_parent_id', as: 'SousTaches' });
+TaskPro.belongsTo(TaskPro, { foreignKey: 'tache_parent_id', as: 'tacheParent' });
+
+// Associations pour CommentaireTask
+TaskPro.hasMany(CommentaireTask, { foreignKey: 'task_id', as: 'Commentaires' });
+CommentaireTask.belongsTo(TaskPro, { foreignKey: 'task_id', as: 'task' });
+
+User.hasMany(CommentaireTask, { foreignKey: 'user_id', as: 'CommentairesTasks' });
+CommentaireTask.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+CommentaireTask.hasMany(CommentaireTask, { foreignKey: 'commentaire_parent_id', as: 'Reponses' });
+CommentaireTask.belongsTo(CommentaireTask, { foreignKey: 'commentaire_parent_id', as: 'commentaireParent' });
+
+// Associations pour File et Folder
+User.hasMany(File, { foreignKey: 'user_id', as: 'Files' });
+File.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+Folder.hasMany(File, { foreignKey: 'folder_id', as: 'Files' });
+File.belongsTo(Folder, { foreignKey: 'folder_id', as: 'folder' });
+
+Folder.hasMany(Folder, { foreignKey: 'parent_id', as: 'Children' });
+Folder.belongsTo(Folder, { foreignKey: 'parent_id', as: 'parent' });
+
+User.hasMany(Folder, { foreignKey: 'user_id', as: 'Folders' });
+Folder.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Associations pour les circuits de validation
+User.hasMany(Circuit, { foreignKey: 'user_id', as: 'Circuits' });
+Circuit.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+Circuit.hasMany(File, { foreignKey: 'circuit_id', as: 'Files' });
+File.belongsTo(Circuit, { foreignKey: 'circuit_id', as: 'circuit' });
+
+Circuit.hasMany(Validation, { foreignKey: 'circuit_id', as: 'Validations' });
+Validation.belongsTo(Circuit, { foreignKey: 'circuit_id', as: 'circuit' });
+
+File.hasMany(Validation, { foreignKey: 'file_id', as: 'Validations' });
+Validation.belongsTo(File, { foreignKey: 'file_id', as: 'file' });
+
+User.hasMany(Validation, { foreignKey: 'validateur_id', as: 'Validations' });
+Validation.belongsTo(User, { foreignKey: 'validateur_id', as: 'validateur' });
 
 // Associations pour les tâches
 User.hasMany(Tache, { foreignKey: 'createur_id', as: 'TachesCreateur' });
@@ -673,5 +746,12 @@ module.exports = {
   SuiviMaintenance,
   Conversation,
   Message,
+  Plainte,
+  TaskPro,
+  CommentaireTask,
+  File,
+  Folder,
+  Circuit,
+  Validation,
   // Alerte removed
 }; 

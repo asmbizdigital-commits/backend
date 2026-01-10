@@ -57,6 +57,11 @@ const reportsRoutes = require('./routes/reports');
 const suivisMaintenancesRoutes = require('./routes/suivis-maintenances');
 const menusRoutes = require('./routes/menus');
 const messagesRoutes = require('./routes/messages');
+const plaintesRoutes = require('./routes/plaintes');
+const taskProRoutes = require('./routes/task-pro');
+const commentairesTasksRoutes = require('./routes/commentaires-tasks');
+const filesRoutes = require('./routes/files');
+const circuitsRoutes = require('./routes/circuits');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -305,6 +310,11 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/suivis-maintenances', suivisMaintenancesRoutes);
 app.use('/api/menus', menusRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/plaintes', plaintesRoutes);
+app.use('/api/task-pro', taskProRoutes);
+app.use('/api/commentaires-tasks', commentairesTasksRoutes);
+app.use('/api/files', filesRoutes);
+app.use('/api/circuits', circuitsRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

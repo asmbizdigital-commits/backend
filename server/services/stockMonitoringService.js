@@ -97,7 +97,7 @@ class StockMonitoringService {
               {
                 model: Inventaire,
                 as: 'inventaire',
-                attributes: ['id', 'nom', 'code_produit', 'quantite_min', 'stock_minimum', 'categorie']
+                attributes: ['id', 'nom', 'code_produit', 'quantite_min', 'categorie']
               }
             ]
           }

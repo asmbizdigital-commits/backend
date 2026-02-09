@@ -488,6 +488,24 @@ async function startServer() {
       console.warn('⚠️ tbl_taux_jour:', err.message);
     }
 
+    // Créer tbl_parametres_sys si absente (LONGTEXT pour compat MySQL 5.6+)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_parametres_sys (
+          id INT NOT NULL AUTO_INCREMENT,
+          section VARCHAR(50) NOT NULL,
+          data LONGTEXT NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_parametres_sys_section (section)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Table tbl_parametres_sys prête.');
+    } catch (err) {
+      console.warn('⚠️ tbl_parametres_sys:', err.message);
+    }
+
     // Démarrer le service de monitoring des stocks
     const stockMonitoringService = require('./services/stockMonitoringService');
     const monitoringInterval = parseInt(process.env.STOCK_MONITORING_INTERVAL || '60000', 10); // 1 minute par défaut

@@ -5,6 +5,19 @@ const TauxJour = require('../models/TauxJour');
 
 const DEVISES = ['USD', 'EUR', 'GBP', 'CNY', 'JPY'];
 
+function emptyRates() {
+  const r = {};
+  DEVISES.forEach(d => { r[d] = null; });
+  return r;
+}
+
+// Table tbl_taux_jour manquante (migration non exécutée) → ne pas faire 500
+function isTableMissing(err) {
+  if (!err) return false;
+  const msg = [err.message, err.original && err.original.message].filter(Boolean).join(' ');
+  return /doesn't exist|ER_NO_SUCH_TABLE|Unknown table/i.test(msg);
+}
+
 const router = express.Router();
 router.use(authenticateToken);
 
@@ -21,11 +34,14 @@ router.get('/', [
       order: [['devise', 'ASC']],
       raw: true
     });
-    const rates = {};
-    DEVISES.forEach(d => { rates[d] = null; });
+    const rates = emptyRates();
     rows.forEach(r => { rates[r.devise] = parseFloat(r.taux); });
     return res.json({ date, rates });
   } catch (err) {
+    if (isTableMissing(err)) {
+      console.warn('Taux-jour GET: table tbl_taux_jour absente, exécuter la migration.');
+      return res.json({ date: req.query.date || new Date().toISOString().slice(0, 10), rates: emptyRates(), tableMissing: true });
+    }
     console.error('Taux-jour GET:', err);
     return res.status(500).json({ message: 'Erreur serveur' });
   }
@@ -57,11 +73,17 @@ router.put('/', [
       order: [['devise', 'ASC']],
       raw: true
     });
-    const out = { date, rates: {} };
-    DEVISES.forEach(d => { out.rates[d] = null; });
+    const out = { date, rates: emptyRates() };
     updated.forEach(r => { out.rates[r.devise] = parseFloat(r.taux); });
     return res.json(out);
   } catch (err) {
+    if (isTableMissing(err)) {
+      console.warn('Taux-jour PUT: table tbl_taux_jour absente, exécuter la migration.');
+      return res.status(503).json({
+        message: 'Table des taux non configurée. Exécutez la migration : node backend/scripts/run-taux-jour-migration.js',
+        tableMissing: true
+      });
+    }
     console.error('Taux-jour PUT:', err);
     return res.status(500).json({ message: 'Erreur serveur' });
   }

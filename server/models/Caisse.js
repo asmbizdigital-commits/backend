@@ -57,6 +57,11 @@ const Caisse = sequelize.define('Caisse', {
     allowNull: true,
     comment: 'ID de l\'utilisateur responsable de la caisse'
   },
+  compte_fin_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: 'Compte plan comptable (trésorerie) lié à cette caisse - sync module Finances'
+  },
   date_ouverture: {
     type: DataTypes.DATE,
     allowNull: true,

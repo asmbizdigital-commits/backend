@@ -1,10 +1,10 @@
-# 🏢 ASM ERP - Backend API
+# 🏢 IGM ERP - Backend API
 
-Backend Node.js/Express pour le système ERP intégré de la société ASM (ASM ERP).
+Backend Node.js/Express pour le système ERP intégré de la société IGM (IGM ERP).
 
 ## 📋 À propos
 
-ASM ERP est une solution complète de gestion d'entreprise intégrée pour la société ASM, offrant des modules spécialisés pour la gestion des ressources humaines, la gestion des plaintes, le suivi des tâches et le reporting avancé.
+IGM ERP est une solution complète de gestion d'entreprise intégrée pour la société IGM, offrant des modules spécialisés pour la gestion des ressources humaines, la gestion des plaintes, le suivi des tâches et le reporting avancé.
 
 ## 🚀 Fonctionnalités principales
 
@@ -215,14 +215,14 @@ backend/
 
 ## 🤝 Contribution
 
-Ce projet est développé pour la société ASM. Pour toute contribution, veuillez contacter l'équipe de développement.
+Ce projet est développé pour la société IGM. Pour toute contribution, veuillez contacter l'équipe de développement.
 
 ## 📄 Licence
 
-Propriétaire - ASM © 2025
+Propriétaire - IGM © 2025
 
 ---
 
-**ASM ERP Backend** v2.0.0
+**IGM ERP Backend** v2.0.0
 
-*Solution intégrée de gestion d'entreprise pour ASM*
+*Solution intégrée de gestion d'entreprise pour IGM*

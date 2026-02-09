@@ -5,7 +5,9 @@ const path = require('path');
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/database');
 const Plainte = require('../models/Plainte');
+const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
+const Client = require('../models/Client');
 const Chambre = require('../models/Chambre');
 const Departement = require('../models/Departement');
 const SousDepartement = require('../models/SousDepartement');
@@ -193,6 +195,7 @@ router.get('/', [
 
     const { count, rows: plaintes } = await Plainte.findAndCountAll({
       where: whereClause,
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -243,16 +246,21 @@ router.get('/', [
     console.error('Error details:', error.message);
     console.error('Error stack:', error.stack);
     
-    // Vérifier si c'est une erreur de table inexistante
+    if (error.message && (error.message.includes("Unknown column 'client_id'") || (error.message.includes("client_id") && error.message.includes("Unknown column")))) {
+      return res.status(500).json({
+        error: 'Migration clients requise',
+        message: 'Colonne client_id absente. Exécutez : node backend/scripts/run-clients-migration.js',
+        details: error.message
+      });
+    }
     if (error.message && (error.message.includes("doesn't exist") || error.message.includes("Unknown table"))) {
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Table not found',
         message: 'La table tbl_plaintes n\'existe pas. Veuillez exécuter la migration de la base de données.',
         details: 'Exécutez: mysql -u root -p hotel_beatrice < database/create_tbl_plaintes.sql'
       });
     }
-    
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get complaints',
       message: 'Erreur lors de la récupération des plaintes',
       details: error.message
@@ -319,6 +327,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const plainte = await Plainte.findByPk(id, {
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -411,6 +420,7 @@ router.post('/', [
       categorie,
       priorite,
       employe_id,
+      client_id,
       plaignant_nom,
       plaignant_prenom,
       plaignant_email,
@@ -434,10 +444,24 @@ router.post('/', [
       });
     }
 
-    if (type_plainte === 'Externe' && (!plaignant_nom || !plaignant_email)) {
+    let plaignantNom = plaignant_nom;
+    let plaignantPrenom = plaignant_prenom;
+    let plaignantEmail = plaignant_email;
+    let plaignantTelephone = plaignant_telephone;
+    const clientId = client_id ? parseInt(client_id, 10) : null;
+    if (type_plainte === 'Externe' && clientId) {
+      const client = await Client.findByPk(clientId);
+      if (client) {
+        plaignantNom = client.getDisplayName();
+        plaignantPrenom = client.prenom || plaignant_prenom;
+        plaignantEmail = client.email || plaignant_email;
+        plaignantTelephone = client.telephone || client.mobile || plaignant_telephone;
+      }
+    }
+    if (type_plainte === 'Externe' && !clientId && (!plaignantNom || !plaignantEmail)) {
       return res.status(400).json({
         error: 'Validation failed',
-        message: 'Le nom et l\'email du plaignant sont requis pour une plainte externe'
+        message: 'Pour une plainte externe : renseignez un client (référentiel) ou le nom et l\'email du plaignant'
       });
     }
 
@@ -477,10 +501,11 @@ router.post('/', [
       priorite: priorite || 'Normale',
       statut: 'Nouvelle',
       employe_id: type_plainte === 'Interne' ? parseInt(employe_id) : null,
-      plaignant_nom: type_plainte === 'Externe' ? plaignant_nom : null,
-      plaignant_prenom: type_plainte === 'Externe' ? plaignant_prenom : null,
-      plaignant_email: type_plainte === 'Externe' ? plaignant_email : null,
-      plaignant_telephone: type_plainte === 'Externe' ? plaignant_telephone : null,
+      client_id: type_plainte === 'Externe' ? clientId : null,
+      plaignant_nom: type_plainte === 'Externe' ? plaignantNom : null,
+      plaignant_prenom: type_plainte === 'Externe' ? plaignantPrenom : null,
+      plaignant_email: type_plainte === 'Externe' ? plaignantEmail : null,
+      plaignant_telephone: type_plainte === 'Externe' ? plaignantTelephone : null,
       plaignant_type: type_plainte === 'Externe' ? plaignant_type : null,
       departement_id: departement_id ? parseInt(departement_id) : null,
       sous_departement_id: sous_departement_id ? parseInt(sous_departement_id) : null,
@@ -512,13 +537,27 @@ router.post('/', [
   }
 });
 
+// Helper to generate task number (for auto-created tasks from plaintes)
+const generateNumeroTache = async () => {
+  const year = new Date().getFullYear();
+  const count = await TaskPro.count({
+    where: {
+      date_creation: {
+        [Op.gte]: new Date(`${year}-01-01`)
+      }
+    }
+  });
+  return `TASK-${year}-${String(count + 1).padStart(4, '0')}`;
+};
+
 // PUT /api/plaintes/:id - Update complaint
 router.put('/:id', [
+  upload.array('fichiers', 5),
   body('titre').optional().isLength({ min: 3, max: 255 }),
   body('description').optional().isLength({ min: 10 }),
   body('statut').optional().isIn(['Nouvelle', 'En cours', 'En attente', 'Résolue', 'Fermée', 'Rejetée']),
   body('priorite').optional().isIn(['Basse', 'Normale', 'Haute', 'Urgente']),
-  body('assignee_id').optional().isInt()
+  body('assignee_id').optional()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -540,7 +579,15 @@ router.put('/:id', [
     }
 
     const oldStatus = plainte.statut;
+    const previousAssigneeId = plainte.assignee_id ? parseInt(plainte.assignee_id, 10) : null;
     const updateData = { ...req.body };
+
+    // Normalize assignee_id from form (string to int)
+    if (updateData.assignee_id !== undefined && updateData.assignee_id !== '') {
+      updateData.assignee_id = parseInt(updateData.assignee_id, 10) || null;
+    } else if (updateData.assignee_id === '') {
+      updateData.assignee_id = null;
+    }
 
     // Handle status change
     if (updateData.statut && updateData.statut !== oldStatus) {
@@ -553,16 +600,57 @@ router.put('/:id', [
     }
 
     // Handle assignment
-    if (updateData.assignee_id && updateData.assignee_id !== plainte.assignee_id) {
+    if (updateData.assignee_id && updateData.assignee_id !== previousAssigneeId) {
       updateData.date_assignation = new Date();
     }
 
-    // Update complaint
-    await plainte.update(updateData);
+    // Update complaint (only pass fields that exist on Plainte to avoid stripping)
+    const plainteFields = ['titre', 'description', 'statut', 'priorite', 'assignee_id', 'date_assignation', 'date_resolution', 'date_fermeture', 'employe_id', 'client_id', 'departement_id', 'sous_departement_id', 'chambre_id', 'date_incident', 'date_limite', 'notes_internes', 'confidentialite', 'categorie', 'type_plainte', 'plaignant_nom', 'plaignant_prenom', 'plaignant_email', 'plaignant_telephone', 'plaignant_type'];
+    const filteredUpdate = {};
+    plainteFields.forEach(f => {
+      if (updateData[f] !== undefined) filteredUpdate[f] = updateData[f];
+    });
+    await plainte.update(filteredUpdate);
 
     // Calculate duration if resolved
     if (plainte.statut === 'Résolue') {
       await plainte.calculateDuration();
+    }
+
+    // When a responsible is assigned (new or changed), create a task "À faire" with checklist "Lecture et prise en mains"
+    // Use plainte after update so we rely on the value actually persisted
+    await plainte.reload();
+    const assigneeAfterUpdate = plainte.assignee_id != null ? parseInt(plainte.assignee_id, 10) : null;
+    const shouldCreateTask = assigneeAfterUpdate && assigneeAfterUpdate !== previousAssigneeId;
+    if (shouldCreateTask) {
+      try {
+        const numero_tache = await generateNumeroTache();
+        const checklist = [
+          { id: Date.now(), text: 'Lecture et prise en mains', completed: false }
+        ];
+        await TaskPro.create({
+          numero_tache,
+          titre: `Plainte ${plainte.numero_plainte} - Prise en charge`,
+          description: `Tâche créée automatiquement pour la plainte ${plainte.numero_plainte} : ${plainte.titre || ''}`.trim(),
+          type_tache: 'Tâche',
+          statut: 'À faire',
+          colonne_kanban: 'À faire',
+          priorite: plainte.priorite || 'Normale',
+          createur_id: req.user.id,
+          assignee_id: assigneeAfterUpdate,
+          departement_id: plainte.departement_id || null,
+          sous_departement_id: plainte.sous_departement_id || null,
+          checklist,
+          nombre_checklist_items: 1,
+          checklist_completed: 0,
+          progression: 0,
+          visibilite: 'Public',
+          confidentialite: 'Normale'
+        });
+      } catch (taskErr) {
+        console.error('Error creating task from plainte assignment:', taskErr);
+        // Do not fail the plainte update; task creation is best-effort
+      }
     }
 
     res.json({ 

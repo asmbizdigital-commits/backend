@@ -420,6 +420,162 @@ class PDFService {
         return '#2c3e50'; // Bleu foncé par défaut
     }
   }
+
+  /**
+   * Génère un PDF de facture (design selon template_code: minimal, modern, classic)
+   * @param {Object} facture - FactureFin
+   * @param {Array} lignes - LigneFactureFin[]
+   * @returns {Promise<{buffer: Buffer}>}
+   */
+  async generateFacturePDF(facture, lignes = []) {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ size: 'A4', margin: 50 });
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve({ buffer: Buffer.concat(chunks) }));
+        doc.on('error', reject);
+
+        const template = (facture.template_code || 'modern').toLowerCase();
+        const devise = facture.devise || 'FC';
+        const totalHT = parseFloat(facture.total_ht || 0);
+        const totalTVA = parseFloat(facture.total_tva || 0);
+        const totalTTC = parseFloat(facture.total_ttc || 0);
+
+        if (template === 'minimal') {
+          this._factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+        } else if (template === 'classic') {
+          this._factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+        } else {
+          this._factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+        }
+
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  _factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+    doc.fontSize(10).font('Helvetica');
+    doc.text('FACTURE', 50, 50).moveDown(0.3);
+    doc.font('Helvetica-Bold').text(facture.numero, 50, doc.y).moveDown(0.5);
+    doc.font('Helvetica');
+    doc.text(`Date: ${this.formatDate(facture.date_facture)}`, 50, doc.y);
+    if (facture.date_echeance) doc.text(`Échéance: ${this.formatDate(facture.date_echeance)}`, 50, doc.y + 14);
+    doc.moveDown(1);
+    doc.text(`Client: ${facture.client_nom || ''}`, 50, doc.y);
+    if (facture.client_adresse) doc.text(facture.client_adresse, 50, doc.y + 14);
+    if (facture.client_email) doc.text(facture.client_email, 50, doc.y + 28);
+    doc.moveDown(1.5);
+    const startY = doc.y;
+    doc.font('Helvetica-Bold').text('Désignation', 50, startY).text('Qté', 320, startY).text('P.U', 380, startY).text('Montant TTC', 480, startY);
+    doc.moveTo(50, startY + 12).lineTo(545, startY + 12).stroke();
+    doc.font('Helvetica');
+    let y = startY + 22;
+    (lignes || []).forEach((l) => {
+      doc.text((l.libelle || '').substring(0, 45), 50, y, { width: 260 });
+      doc.text(parseFloat(l.quantite || 0).toFixed(2), 320, y);
+      doc.text(parseFloat(l.prix_unitaire || 0).toFixed(2), 380, y);
+      doc.text(`${parseFloat(l.montant_ttc || 0).toFixed(2)} ${devise}`, 460, y);
+      y += 20;
+    });
+    y += 10;
+    doc.moveTo(50, y).lineTo(545, y).stroke();
+    y += 18;
+    doc.text(`Total HT: ${totalHT.toFixed(2)} ${devise}`, 380, y);
+    y += 16;
+    doc.text(`TVA: ${totalTVA.toFixed(2)} ${devise}`, 380, y);
+    y += 16;
+    doc.font('Helvetica-Bold').text(`Total TTC: ${totalTTC.toFixed(2)} ${devise}`, 380, y);
+    doc.fontSize(8).font('Helvetica').text(`Statut: ${facture.statut || 'brouillon'}`, 50, 800);
+  }
+
+  _factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+    doc.rect(50, 45, 495, 35).fillAndStroke('#f5f5f5', '#ddd');
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#333').text('FACTURE', 60, 55);
+    doc.fontSize(11).font('Helvetica').text(facture.numero, 400, 55);
+    doc.text(`Date: ${this.formatDate(facture.date_facture)}`, 400, 68);
+    doc.moveDown(2);
+    doc.fillColor('black');
+    doc.font('Helvetica-Bold').text('Client', 50, doc.y);
+    doc.font('Helvetica');
+    doc.text(facture.client_nom || '', 50, doc.y + 14);
+    if (facture.client_adresse) doc.text(facture.client_adresse, 50, doc.y + 28);
+    if (facture.client_email) doc.text(facture.client_email, 50, doc.y + 42);
+    doc.moveDown(1.2);
+    const startY = doc.y;
+    doc.rect(50, startY, 495, 22).fillAndStroke('#e8e8e8', '#ccc');
+    doc.font('Helvetica-Bold').fontSize(9);
+    doc.text('Désignation', 55, startY + 6).text('Qté', 300, startY + 6).text('P.U HT', 350, startY + 6).text('TVA %', 410, startY + 6).text('Montant TTC', 450, startY + 6);
+    doc.font('Helvetica').fontSize(9);
+    let y = startY + 28;
+    (lignes || []).forEach((l, i) => {
+      if (i % 2 === 0) doc.rect(50, y - 4, 495, 18).fill('#fafafa');
+      doc.text((l.libelle || '').substring(0, 42), 55, y, { width: 240 });
+      doc.text(parseFloat(l.quantite || 0).toFixed(2), 300, y);
+      doc.text(parseFloat(l.prix_unitaire || 0).toFixed(2), 350, y);
+      doc.text(parseFloat(l.taux_tva || 0).toFixed(0) + ' %', 410, y);
+      doc.text(`${parseFloat(l.montant_ttc || 0).toFixed(2)} ${devise}`, 450, y);
+      y += 18;
+    });
+    y += 14;
+    doc.rect(50, y, 495, 60).fillAndStroke('#f9f9f9', '#ddd');
+    doc.font('Helvetica-Bold').text('Total HT:', 320, y + 12);
+    doc.text(`${totalHT.toFixed(2)} ${devise}`, 450, y + 12);
+    doc.text('TVA:', 320, y + 28);
+    doc.text(`${totalTVA.toFixed(2)} ${devise}`, 450, y + 28);
+    doc.fontSize(11).text('Total TTC:', 320, y + 46);
+    doc.text(`${totalTTC.toFixed(2)} ${devise}`, 450, y + 46);
+    doc.fontSize(8).font('Helvetica').fillColor('#666').text(`Échéance: ${facture.date_echeance ? this.formatDate(facture.date_echeance) : '—'}  |  Statut: ${facture.statut || 'brouillon'}`, 50, 800);
+  }
+
+  _factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+    const accent = '#2563eb';
+    doc.rect(0, 0, 595, 80).fill(accent);
+    doc.fillColor('white').fontSize(20).font('Helvetica-Bold').text('FACTURE', 50, 32);
+    doc.fontSize(11).font('Helvetica').text(facture.numero, 50, 55);
+    doc.fontSize(10).text(`Date: ${this.formatDate(facture.date_facture)}`, 400, 35);
+    if (facture.date_echeance) doc.text(`Échéance: ${this.formatDate(facture.date_echeance)}`, 400, 50);
+    doc.fillColor('black').moveDown(3);
+    doc.font('Helvetica-Bold').fontSize(11).text('Facturé à', 50, doc.y);
+    doc.font('Helvetica').fontSize(10);
+    doc.text(facture.client_nom || '', 50, doc.y + 14);
+    if (facture.client_adresse) doc.text(facture.client_adresse, 50, doc.y + 28);
+    if (facture.client_email) doc.text(facture.client_email, 50, doc.y + 42);
+    if (facture.client_telephone) doc.text(facture.client_telephone, 50, doc.y + 56);
+    doc.moveDown(1.5);
+    const startY = doc.y;
+    doc.moveTo(50, startY).lineTo(545, startY).stroke();
+    doc.font('Helvetica-Bold').fontSize(9);
+    doc.fillColor(accent);
+    doc.text('Désignation', 55, startY + 10).text('Qté', 320, startY + 10).text('P.U', 370, startY + 10).text('TVA %', 420, startY + 10).text('TTC', 480, startY + 10);
+    doc.fillColor('black').font('Helvetica').fontSize(9);
+    let y = startY + 26;
+    (lignes || []).forEach((l, i) => {
+      if (i % 2 === 1) doc.rect(50, y - 6, 495, 20).fill('#f8fafc');
+      doc.text((l.libelle || '').substring(0, 48), 55, y, { width: 258 });
+      doc.text(parseFloat(l.quantite || 0).toFixed(2), 320, y);
+      doc.text(parseFloat(l.prix_unitaire || 0).toFixed(2), 370, y);
+      doc.text(parseFloat(l.taux_tva || 0).toFixed(0) + ' %', 420, y);
+      doc.text(`${parseFloat(l.montant_ttc || 0).toFixed(2)} ${devise}`, 470, y);
+      y += 20;
+    });
+    y += 12;
+    doc.moveTo(350, y).lineTo(545, y).stroke();
+    y += 14;
+    doc.font('Helvetica').text('Total HT', 350, y);
+    doc.text(`${totalHT.toFixed(2)} ${devise}`, 470, y);
+    y += 16;
+    doc.text('TVA', 350, y);
+    doc.text(`${totalTVA.toFixed(2)} ${devise}`, 470, y);
+    y += 18;
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(accent);
+    doc.text('Total TTC', 350, y);
+    doc.text(`${totalTTC.toFixed(2)} ${devise}`, 470, y);
+    doc.fillColor('#64748b').fontSize(8).font('Helvetica').text(`Statut: ${facture.statut || 'brouillon'}`, 50, 800);
+  }
 }
 
 module.exports = new PDFService();

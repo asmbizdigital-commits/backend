@@ -73,8 +73,14 @@ router.get('/', async (req, res, next) => {
       }
     }
 
+    if (req.query.client_id && req.query.client_id.trim() !== '') {
+      const clientId = parseInt(req.query.client_id);
+      if (!isNaN(clientId)) whereClause.client_id = clientId;
+    }
+
     const { count, rows: taches } = await Tache.findAndCountAll({
       where: whereClause,
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -128,6 +134,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const tache = await Tache.findByPk(id, {
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -183,6 +190,10 @@ router.post('/', [
     if (value === '' || value === null || value === undefined) return true;
     return !isNaN(parseInt(value));
   }),
+  body('client_id').optional().custom((value) => {
+    if (value === '' || value === null || value === undefined) return true;
+    return !isNaN(parseInt(value));
+  }),
   body('date_limite').optional().custom((value) => {
     if (value === '' || value === null || value === undefined) return true;
     return !isNaN(Date.parse(value));
@@ -229,6 +240,12 @@ router.post('/', [
       delete tacheData.problematique_id;
     } else if (tacheData.problematique_id) {
       tacheData.problematique_id = parseInt(tacheData.problematique_id);
+    }
+
+    if (tacheData.client_id === '' || tacheData.client_id === null) {
+      delete tacheData.client_id;
+    } else if (tacheData.client_id) {
+      tacheData.client_id = parseInt(tacheData.client_id, 10);
     }
 
     if (tacheData.date_limite === '' || tacheData.date_limite === null) {
@@ -295,6 +312,10 @@ router.put('/:id', [
     if (value === '' || value === null || value === undefined) return true;
     return !isNaN(parseInt(value));
   }),
+  body('client_id').optional().custom((value) => {
+    if (value === '' || value === null || value === undefined) return true;
+    return !isNaN(parseInt(value));
+  }),
   body('date_limite').optional().custom((value) => {
     if (value === '' || value === null || value === undefined) return true;
     return !isNaN(Date.parse(value));
@@ -320,7 +341,7 @@ router.put('/:id', [
     }
 
     const { id } = req.params;
-    const tache = await Tache.findByPk(id);
+    const tache = await Tache.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!tache) {
       return res.status(404).json({ 
@@ -457,7 +478,7 @@ router.put('/:id', [
 router.post('/:id/start', async (req, res) => {
   try {
     const { id } = req.params;
-    const tache = await Tache.findByPk(id);
+    const tache = await Tache.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!tache) {
       return res.status(404).json({ 
@@ -535,7 +556,7 @@ router.post('/:id/start', async (req, res) => {
 router.post('/:id/complete', async (req, res) => {
   try {
     const { id } = req.params;
-    const tache = await Tache.findByPk(id);
+    const tache = await Tache.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!tache) {
       return res.status(404).json({ 
@@ -620,7 +641,7 @@ router.delete('/:id', async (req, res) => {
   }
   try {
     const { id } = req.params;
-    const tache = await Tache.findByPk(id);
+    const tache = await Tache.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!tache) {
       return res.status(404).json({ 

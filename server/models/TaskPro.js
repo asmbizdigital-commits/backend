@@ -73,6 +73,11 @@ const TaskPro = sequelize.define('TaskPro', {
       key: 'id'
     }
   },
+  client_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'tbl_clients', key: 'id' }
+  },
   assignees: {
     type: DataTypes.TEXT,
     allowNull: true,

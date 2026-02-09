@@ -160,6 +160,7 @@ router.get('/', [
 
     const { count, rows: tasks } = await TaskPro.findAndCountAll({
       where: whereClause,
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -225,6 +226,7 @@ router.get('/kanban', async (req, res) => {
 
     const tasks = await TaskPro.findAll({
       where: whereClause,
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -316,6 +318,7 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const task = await TaskPro.findByPk(id, {
+      attributes: { exclude: ['client_id'] },
       include: [
         {
           model: User,
@@ -434,6 +437,7 @@ router.post('/', [
       colonne_kanban,
       position,
       assignee_id,
+      client_id,
       assignees,
       projet_id,
       projet_nom,
@@ -490,6 +494,7 @@ router.post('/', [
       priorite: priorite || 'Normale',
       createur_id: req.user.id,
       assignee_id: assignee_id ? parseInt(assignee_id) : null,
+      client_id: client_id ? parseInt(client_id, 10) : null,
       assignees: assignees ? (Array.isArray(assignees) ? assignees : JSON.parse(assignees)) : null,
       projet_id: projet_id ? parseInt(projet_id) : null,
       projet_nom: projet_nom || null,
@@ -547,7 +552,7 @@ router.put('/:id', [
     }
 
     const { id } = req.params;
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!task) {
       return res.status(404).json({ 
@@ -724,7 +729,7 @@ router.patch('/:id/move', [
     const { id } = req.params;
     const { colonne_kanban, position } = req.body;
 
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
     if (!task) {
       return res.status(404).json({ 
         error: 'Task not found',
@@ -778,7 +783,7 @@ router.patch('/:id/assign', [
     const { id } = req.params;
     const { assignee_id } = req.body;
 
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
     if (!task) {
       return res.status(404).json({ 
         error: 'Task not found',
@@ -825,7 +830,7 @@ router.post('/:id/comment', [
     const { id } = req.params;
     const { comment, attachments = [] } = req.body;
 
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
     if (!task) {
       return res.status(404).json({ 
         error: 'Task not found',
@@ -876,7 +881,7 @@ router.post('/:id/comment', [
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
 
     if (!task) {
       return res.status(404).json({ 
@@ -912,7 +917,7 @@ router.patch('/:id/archive', async (req, res) => {
     const { id } = req.params;
     const { archive } = req.body;
 
-    const task = await TaskPro.findByPk(id);
+    const task = await TaskPro.findByPk(id, { attributes: { exclude: ['client_id'] } });
     if (!task) {
       return res.status(404).json({ 
         error: 'Task not found',

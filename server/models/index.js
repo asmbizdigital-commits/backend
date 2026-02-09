@@ -1,5 +1,6 @@
 const User = require('./User');
 const Employe = require('./Employe');
+const EmployeUser = require('./EmployeUser');
 const Chambre = require('./Chambre');
 const Problematique = require('./Problematique');
 const ProblematiqueImage = require('./ProblematiqueImage');
@@ -40,6 +41,9 @@ const OffreEmploi = require('./OffreEmploi');
 const CandidatureOffre = require('./CandidatureOffre');
 const Dependant = require('./Dependant');
 const Sanction = require('./Sanction');
+const SanctionPro = require('./SanctionPro');
+const DemandeConge = require('./DemandeConge');
+const Absence = require('./Absence');
 const Gratification = require('./Gratification');
 const DeviceToken = require('./DeviceToken');
 const NettoyageEspacesPublics = require('./NettoyageEspacesPublics');
@@ -57,6 +61,20 @@ const File = require('./File');
 const Folder = require('./Folder');
 const Circuit = require('./Circuit');
 const Validation = require('./Validation');
+const CompteFin = require('./CompteFin');
+const JournalFin = require('./JournalFin');
+const EcritureFin = require('./EcritureFin');
+const LigneEcritureFin = require('./LigneEcritureFin');
+const BudgetFin = require('./BudgetFin');
+const LigneBudgetFin = require('./LigneBudgetFin');
+const FactureFin = require('./FactureFin');
+const LigneFactureFin = require('./LigneFactureFin');
+const Client = require('./Client');
+const RedevanceMine = require('./RedevanceMine');
+const PaiementRedevance = require('./PaiementRedevance');
+const OperateurMine = require('./OperateurMine');
+const TitrePermisMine = require('./TitrePermisMine');
+const InspectionTerrainMine = require('./InspectionTerrainMine');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -131,6 +149,50 @@ Validation.belongsTo(File, { foreignKey: 'file_id', as: 'file' });
 
 User.hasMany(Validation, { foreignKey: 'validateur_id', as: 'Validations' });
 Validation.belongsTo(User, { foreignKey: 'validateur_id', as: 'validateur' });
+
+// Associations module Finances
+CompteFin.hasMany(CompteFin, { foreignKey: 'parent_id', as: 'Enfants' });
+CompteFin.belongsTo(CompteFin, { foreignKey: 'parent_id', as: 'parent' });
+JournalFin.hasMany(EcritureFin, { foreignKey: 'journal_id', as: 'ecritures' });
+EcritureFin.belongsTo(JournalFin, { foreignKey: 'journal_id', as: 'journal' });
+User.hasMany(EcritureFin, { foreignKey: 'created_by', as: 'EcrituresFinCreees' });
+EcritureFin.belongsTo(User, { foreignKey: 'created_by', as: 'createur' });
+EcritureFin.hasMany(LigneEcritureFin, { foreignKey: 'ecriture_id', as: 'lignes' });
+LigneEcritureFin.belongsTo(EcritureFin, { foreignKey: 'ecriture_id', as: 'ecriture' });
+CompteFin.hasMany(LigneEcritureFin, { foreignKey: 'compte_id', as: 'lignes' });
+LigneEcritureFin.belongsTo(CompteFin, { foreignKey: 'compte_id', as: 'compte' });
+BudgetFin.hasMany(LigneBudgetFin, { foreignKey: 'budget_id', as: 'lignes' });
+LigneBudgetFin.belongsTo(BudgetFin, { foreignKey: 'budget_id', as: 'budget' });
+CompteFin.hasMany(LigneBudgetFin, { foreignKey: 'compte_id', as: 'lignesBudget' });
+LigneBudgetFin.belongsTo(CompteFin, { foreignKey: 'compte_id', as: 'compte' });
+User.hasMany(BudgetFin, { foreignKey: 'created_by', as: 'BudgetsFinCrees' });
+BudgetFin.belongsTo(User, { foreignKey: 'created_by', as: 'createur' });
+FactureFin.hasMany(LigneFactureFin, { foreignKey: 'facture_id', as: 'lignes' });
+LigneFactureFin.belongsTo(FactureFin, { foreignKey: 'facture_id', as: 'facture' });
+CompteFin.hasMany(LigneFactureFin, { foreignKey: 'compte_id', as: 'lignesFacture' });
+LigneFactureFin.belongsTo(CompteFin, { foreignKey: 'compte_id', as: 'compte' });
+User.hasMany(FactureFin, { foreignKey: 'created_by', as: 'FacturesFinCrees' });
+FactureFin.belongsTo(User, { foreignKey: 'created_by', as: 'createur' });
+EcritureFin.hasOne(FactureFin, { foreignKey: 'ecriture_id', as: 'facture' });
+FactureFin.belongsTo(EcritureFin, { foreignKey: 'ecriture_id', as: 'ecriture' });
+Client.hasMany(FactureFin, { foreignKey: 'client_id', as: 'factures' });
+FactureFin.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(Plainte, { foreignKey: 'client_id', as: 'plaintes' });
+Plainte.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(Tache, { foreignKey: 'client_id', as: 'taches' });
+Tache.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Client.hasMany(TaskPro, { foreignKey: 'client_id', as: 'tasksPro' });
+TaskPro.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+
+// Associations Mines / Redevances
+RedevanceMine.hasMany(PaiementRedevance, { foreignKey: 'redevance_id', as: 'paiements' });
+PaiementRedevance.belongsTo(RedevanceMine, { foreignKey: 'redevance_id', as: 'redevance' });
+
+OperateurMine.hasMany(TitrePermisMine, { foreignKey: 'operateur_id', as: 'titresPermis' });
+TitrePermisMine.belongsTo(OperateurMine, { foreignKey: 'operateur_id', as: 'operateur' });
+
+OperateurMine.hasMany(InspectionTerrainMine, { foreignKey: 'operateur_id', as: 'inspectionsTerrain' });
+InspectionTerrainMine.belongsTo(OperateurMine, { foreignKey: 'operateur_id', as: 'operateur' });
 
 // Associations pour les tâches
 User.hasMany(Tache, { foreignKey: 'createur_id', as: 'TachesCreateur' });
@@ -596,12 +658,43 @@ Sanction.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
 Employe.hasMany(Sanction, { foreignKey: 'sanction_par', as: 'SanctionsAppliquees' });
 Sanction.belongsTo(Employe, { foreignKey: 'sanction_par', as: 'sanctionPar' });
 
+// Associations pour les sanctions-pro (workflow d'approbation)
+Employe.hasMany(SanctionPro, { foreignKey: 'employe_id', as: 'SanctionsPro' });
+SanctionPro.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
+
+User.hasMany(SanctionPro, { foreignKey: 'demandeur_id', as: 'SanctionsProDemandeur' });
+SanctionPro.belongsTo(User, { foreignKey: 'demandeur_id', as: 'demandeur' });
+
+User.hasMany(SanctionPro, { foreignKey: 'validateur_id', as: 'SanctionsProValidateur' });
+SanctionPro.belongsTo(User, { foreignKey: 'validateur_id', as: 'validateur' });
+
+// Associations demandes de congés et absences
+Employe.hasMany(DemandeConge, { foreignKey: 'employe_id', as: 'DemandesConges' });
+DemandeConge.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
+User.hasMany(DemandeConge, { foreignKey: 'demandeur_id', as: 'DemandesCongesDemandeur' });
+DemandeConge.belongsTo(User, { foreignKey: 'demandeur_id', as: 'demandeur' });
+User.hasMany(DemandeConge, { foreignKey: 'validateur_id', as: 'DemandesCongesValidateur' });
+DemandeConge.belongsTo(User, { foreignKey: 'validateur_id', as: 'validateur' });
+
+Employe.hasMany(Absence, { foreignKey: 'employe_id', as: 'Absences' });
+Absence.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
+DemandeConge.hasMany(Absence, { foreignKey: 'demande_conge_id', as: 'Absences' });
+Absence.belongsTo(DemandeConge, { foreignKey: 'demande_conge_id', as: 'demande_conge' });
+User.hasMany(Absence, { foreignKey: 'enregistre_par_id', as: 'AbsencesEnregistrees' });
+Absence.belongsTo(User, { foreignKey: 'enregistre_par_id', as: 'enregistre_par' });
+
 // Associations pour les gratifications
 Employe.hasMany(Gratification, { foreignKey: 'employe_id', as: 'Gratifications' });
 Gratification.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
 
 Employe.hasMany(Gratification, { foreignKey: 'gratification_par', as: 'GratificationsAccordees' });
 Gratification.belongsTo(Employe, { foreignKey: 'gratification_par', as: 'gratificationPar' });
+
+// Liaison employé - utilisateur (compte de connexion)
+Employe.hasOne(EmployeUser, { foreignKey: 'employe_id', as: 'LiaisonUser' });
+EmployeUser.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });
+User.hasOne(EmployeUser, { foreignKey: 'user_id', as: 'LiaisonEmploye' });
+EmployeUser.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // Associations pour les tokens d'appareils
 User.hasMany(DeviceToken, { foreignKey: 'user_id', as: 'deviceTokens' });
@@ -735,8 +828,12 @@ module.exports = {
   CandidatureOffre,
   Dependant,
   Sanction,
+  SanctionPro,
+  DemandeConge,
+  Absence,
   Gratification,
   Employe,
+  EmployeUser,
   DeviceToken,
   NettoyageEspacesPublics,
   CheckLinge,
@@ -753,5 +850,18 @@ module.exports = {
   Folder,
   Circuit,
   Validation,
+  CompteFin,
+  JournalFin,
+  EcritureFin,
+  LigneEcritureFin,
+  BudgetFin,
+  LigneBudgetFin,
+  FactureFin,
+  LigneFactureFin,
+  RedevanceMine,
+  PaiementRedevance,
+  OperateurMine,
+  TitrePermisMine,
+  InspectionTerrainMine,
   // Alerte removed
 }; 

@@ -41,11 +41,11 @@ async function runAllMigrations() {
     console.log(`📦 ${files.length} migration(s) trouvée(s)\n`);
 
     // Vérifier quelles migrations ont déjà été exécutées
-    const [executedMigrations] = await sequelize.query(
+    const executedMigrations = await sequelize.query(
       'SELECT name FROM SequelizeMeta',
       { type: Sequelize.QueryTypes.SELECT }
     );
-    const executedNames = executedMigrations.map(m => m.name);
+    const executedNames = (Array.isArray(executedMigrations) ? executedMigrations : []).map(m => m.name);
 
     let executedCount = 0;
     for (const file of files) {

@@ -76,6 +76,11 @@ const Plainte = sequelize.define('Plainte', {
     type: DataTypes.ENUM('Client', 'Visiteur', 'Fournisseur', 'Autre'),
     allowNull: true
   },
+  client_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'tbl_clients', key: 'id' }
+  },
   // Informations de l'employé plaignant (pour plaintes internes)
   employe_id: {
     type: DataTypes.INTEGER,

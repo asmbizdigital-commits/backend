@@ -12,6 +12,9 @@ const BonMenage = require('../models/BonMenage');
 const Pointage = require('../models/Pointage')(sequelize);
 const Inventaire = require('../models/Inventaire');
 const Demande = require('../models/Demande');
+const Plainte = require('../models/Plainte');
+const TaskPro = require('../models/TaskPro');
+const DemandeConge = require('../models/DemandeConge');
 
 const router = express.Router();
 
@@ -199,22 +202,27 @@ router.get('/stats', async (req, res) => {
         };
       })(),
 
-      // Expense statistics
+      // Expense statistics (décaissements)
       (async () => {
         const totalExpenses = await Depense.count();
         const pendingExpenses = await Depense.count({ where: { statut: 'En attente' } });
         const approvedExpenses = await Depense.count({ where: { statut: 'Approuvée' } });
         const paidExpenses = await Depense.count({ where: { statut: 'Payée' } });
+        const rejectedExpenses = await Depense.count({ where: { statut: 'Rejetée' } });
         const totalAmount = await Depense.sum('montant');
         const pendingAmount = await Depense.sum('montant', { where: { statut: 'En attente' } });
-        
+        const approvedAmount = await Depense.sum('montant', { where: { statut: ['Approuvée', 'Payée'] } });
+        const rejectedAmount = await Depense.sum('montant', { where: { statut: 'Rejetée' } });
         return {
           total: totalExpenses,
           pending: pendingExpenses,
           approved: approvedExpenses,
           paid: paidExpenses,
+          rejected: rejectedExpenses,
           totalAmount: totalAmount || 0,
           pendingAmount: pendingAmount || 0,
+          approvedAmount: approvedAmount || 0,
+          rejectedAmount: rejectedAmount || 0,
           approvalRate: totalExpenses > 0 ? (((approvedExpenses + paidExpenses) / totalExpenses) * 100).toFixed(2) : 0
         };
       })(),
@@ -520,6 +528,152 @@ router.get('/stats', async (req, res) => {
       systemHealth.expenses.score
     ) / 4;
 
+    // --- Task Management & Dashboard widgets (données dynamiques) ---
+    let taskManagement = null;
+    let decaissement = null;
+    let employeesPresence = null;
+    let chartData = null;
+
+    try {
+      // Plaintes
+      const plaintesTotal = await Plainte.count().catch(() => 0);
+      const plaintesResolues = await Plainte.count({ where: { statut: 'Résolue' } }).catch(() => 0);
+      const plaintesFermees = await Plainte.count({ where: { statut: 'Fermée' } }).catch(() => 0);
+      const plaintesEnAttente = await Plainte.count({ where: { statut: 'En attente' } }).catch(() => 0);
+      const plaintesCompleted = plaintesResolues + plaintesFermees;
+      const plaintesCompletionRate = plaintesTotal > 0 ? Math.round((plaintesCompleted / plaintesTotal) * 100) : 0;
+
+      // Task-pro (sprints)
+      const taskProTotal = await TaskPro.count({ where: { supprime: false, archive: false } }).catch(() => 0);
+      const taskProEnCours = await TaskPro.count({ where: { colonne_kanban: 'En cours', supprime: false, archive: false } }).catch(() => 0);
+      const taskProAFaire = await TaskPro.count({ where: { colonne_kanban: 'À faire', supprime: false, archive: false } }).catch(() => 0);
+      const taskProTermine = await TaskPro.count({ where: { colonne_kanban: 'Terminé', supprime: false, archive: false } }).catch(() => 0);
+      const taskProEnRetard = await TaskPro.count({
+        where: {
+          date_echeance: { [Op.lt]: new Date() },
+          statut: { [Op.ne]: 'Terminé' },
+          supprime: false,
+          archive: false
+        }
+      }).catch(() => 0);
+      const sprintsActive = taskProEnCours + taskProAFaire > 0 ? 1 : 0;
+      const sprintsBurndown = taskProTotal > 0 ? Math.round((taskProTermine / taskProTotal) * 100) : 0;
+
+      // Équipe & présence
+      const employesPresents = supervisorRHStats.employesPresentsAujourdhui || 0;
+      const totalUsers = userStats.total || 0;
+      const activeUsers = userStats.active || 0;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      let enCongéAujourdhui = 0;
+      try {
+        const congesEnCours = await DemandeConge.count({
+          where: {
+            statut: 'approuve',
+            date_debut: { [Op.lte]: todayEnd },
+            date_fin: { [Op.gte]: todayStart }
+          }
+        });
+        enCongéAujourdhui = congesEnCours;
+      } catch (e) { /* ignore */ }
+      const absent = Math.max(0, totalUsers - employesPresents - enCongéAujourdhui);
+      const attendanceRate = totalUsers > 0 ? Math.round((employesPresents / totalUsers) * 100) : 0;
+
+      taskManagement = {
+        projects: {
+          active: plaintesTotal - plaintesCompleted,
+          completed: plaintesCompleted,
+          onHold: plaintesEnAttente,
+          total: plaintesTotal,
+          completionRate: plaintesCompletionRate
+        },
+        tasks: {
+          total: taskProTotal,
+          completed: taskProTermine,
+          inProgress: taskProEnCours,
+          pending: taskProAFaire,
+          overdue: taskProEnRetard,
+          completionRate: taskProTotal > 0 ? Math.round((taskProTermine / taskProTotal) * 100) : 0
+        },
+        sprints: {
+          active: sprintsActive,
+          completed: taskProTermine,
+          velocity: taskProTermine,
+          burndown: sprintsBurndown
+        },
+        team: {
+          members: totalUsers,
+          active: activeUsers,
+          onLeave: enCongéAujourdhui,
+          utilization: totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0
+        }
+      };
+
+      decaissement = {
+        total: expenseStats.total,
+        approved: expenseStats.approved + expenseStats.paid,
+        pending: expenseStats.pending,
+        rejected: expenseStats.rejected || 0,
+        totalAmount: expenseStats.totalAmount || 0,
+        approvedAmount: expenseStats.approvedAmount || 0,
+        pendingAmount: expenseStats.pendingAmount || 0,
+        rejectedAmount: expenseStats.rejectedAmount || 0
+      };
+
+      employeesPresence = {
+        presentToday: employesPresents,
+        absent,
+        onLeave: enCongéAujourdhui,
+        late: 0,
+        onTime: employesPresents,
+        attendanceRate
+      };
+
+      // Progression des tâches (7 derniers jours) : terminées par jour + état actuel pour aujourd'hui
+      const projectProgress = [];
+      const dayLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        const dEnd = new Date(d);
+        dEnd.setDate(dEnd.getDate() + 1);
+        const completed = await Tache.count({
+          where: {
+            statut: 'Terminée',
+            date_fin: { [Op.gte]: d, [Op.lt]: dEnd }
+          }
+        }).catch(() => 0);
+        const isToday = i === 0;
+        const inProgress = isToday ? (await Tache.count({ where: { statut: 'En cours' } }).catch(() => 0)) : 0;
+        const pending = isToday ? (await Tache.count({ where: { statut: 'À faire' } }).catch(() => 0)) : 0;
+        projectProgress.push({
+          name: dayLabels[d.getDay()],
+          completed,
+          inProgress,
+          pending
+        });
+      }
+
+      chartData = {
+        projectProgress,
+        taskDistribution: [
+          { name: 'Terminées', value: taskProTermine, color: '#10b981' },
+          { name: 'En cours', value: taskProEnCours, color: '#3b82f6' },
+          { name: 'En attente', value: taskProAFaire, color: '#f59e0b' }
+        ],
+        decaissementStatus: [
+          { name: 'Approuvés', value: decaissement.approved, color: '#10b981' },
+          { name: 'En attente', value: decaissement.pending, color: '#f59e0b' },
+          { name: 'Rejetés', value: decaissement.rejected, color: '#ef4444' }
+        ]
+      };
+    } catch (err) {
+      console.error('Dashboard taskManagement/chartData:', err);
+    }
+
     const response = {
       overview: {
         rooms: roomStats,
@@ -533,7 +687,11 @@ router.get('/stats', async (req, res) => {
       supervisorRHStats,
       systemHealth,
       overallScore: overallScore.toFixed(2),
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      taskManagement,
+      decaissement,
+      employeesPresence,
+      chartData
     };
     
     console.log('🚀 Dashboard response includes auditorStats:', !!response.auditorStats);

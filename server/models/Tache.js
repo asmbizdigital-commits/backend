@@ -66,6 +66,11 @@ const Tache = sequelize.define('Tache', {
       key: 'id'
     }
   },
+  client_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'tbl_clients', key: 'id' }
+  },
   date_creation: {
     type: DataTypes.DATE,
     allowNull: false,

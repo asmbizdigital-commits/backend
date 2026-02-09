@@ -45,7 +45,11 @@ const offresEmploiRoutes = require('./routes/offres-emploi');
 const offresEmploiPublicRoutes = require('./routes/offres-emploi-public');
 const dependantsRoutes = require('./routes/dependants');
 const sanctionsRoutes = require('./routes/sanctions');
+const sanctionsProRoutes = require('./routes/sanctions-pro');
+const demandesCongesRoutes = require('./routes/demandes-conges');
+const absencesRoutes = require('./routes/absences');
 const gratificationsRoutes = require('./routes/gratifications');
+const employeUtilisateurRoutes = require('./routes/employe-utilisateur');
 const deviceTokensRoutes = require('./routes/deviceTokens');
 const nettoyageEspacesPublicsRoutes = require('./routes/nettoyage-espaces-publics');
 const checkLingeRoutes = require('./routes/check-linge');
@@ -62,6 +66,12 @@ const taskProRoutes = require('./routes/task-pro');
 const commentairesTasksRoutes = require('./routes/commentaires-tasks');
 const filesRoutes = require('./routes/files');
 const circuitsRoutes = require('./routes/circuits');
+const financesRoutes = require('./routes/finances');
+const clientsRoutes = require('./routes/clients');
+const redevancesMinesRoutes = require('./routes/redevances-mines');
+const operateursMinesRoutes = require('./routes/operateurs-mines');
+const titresPermisMinesRoutes = require('./routes/titres-permis-mines');
+const inspectionsTerrainMinesRoutes = require('./routes/inspections-terrain-mines');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -298,7 +308,11 @@ app.use('/api/offres-emploi', offresEmploiRoutes);
 app.use('/api/offres-emploi/public', offresEmploiPublicRoutes);
 app.use('/api/dependants', dependantsRoutes);
 app.use('/api/sanctions', sanctionsRoutes);
+app.use('/api/sanctions-pro', sanctionsProRoutes);
+app.use('/api/demandes-conges', demandesCongesRoutes);
+app.use('/api/absences', absencesRoutes);
 app.use('/api/gratifications', gratificationsRoutes);
+app.use('/api/employe-utilisateur', employeUtilisateurRoutes);
 app.use('/api/device-tokens', deviceTokensRoutes);
 app.use('/api/nettoyage-espaces-publics', nettoyageEspacesPublicsRoutes);
 app.use('/api/check-linge', checkLingeRoutes);
@@ -315,6 +329,15 @@ app.use('/api/task-pro', taskProRoutes);
 app.use('/api/commentaires-tasks', commentairesTasksRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/circuits', circuitsRoutes);
+app.use('/api/finances', financesRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/mines/redevances', redevancesMinesRoutes);
+app.use('/api/mines/operateurs', operateursMinesRoutes);
+app.use('/api/mines/titres-permis', titresPermisMinesRoutes);
+app.use('/api/mines/inspections-terrain', inspectionsTerrainMinesRoutes);
+
+// Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
+app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

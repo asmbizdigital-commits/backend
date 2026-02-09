@@ -20,7 +20,7 @@ router.get('/all', async (req, res) => {
     // Récupérer toutes les caisses (sans filtre de statut pour les selects)
     // L'utilisateur peut choisir parmi toutes les caisses disponibles
     const caisses = await Caisse.findAll({
-      attributes: ['id', 'nom', 'code_caisse', 'devise', 'solde_initial', 'solde_actuel', 'statut'],
+      attributes: ['id', 'nom', 'code_caisse', 'devise', 'solde_initial', 'solde_actuel', 'statut', 'compte_fin_id'],
       order: [['nom', 'ASC']]
     });
 
@@ -36,7 +36,8 @@ router.get('/all', async (req, res) => {
             code_caisse: caisse.code_caisse,
             devise: caisse.devise,
             solde_initial: caisse.solde_initial,
-            solde_actuel: nouveauSolde
+            solde_actuel: nouveauSolde,
+            compte_fin_id: caisse.compte_fin_id || null
           };
         } catch (error) {
           console.error(`Erreur lors du calcul du solde pour la caisse ${caisse.id}:`, error);
@@ -47,7 +48,8 @@ router.get('/all', async (req, res) => {
             code_caisse: caisse.code_caisse,
             devise: caisse.devise,
             solde_initial: caisse.solde_initial,
-            solde_actuel: caisse.solde_actuel || 0
+            solde_actuel: caisse.solde_actuel || 0,
+            compte_fin_id: caisse.compte_fin_id || null
           };
         }
       })
@@ -352,7 +354,11 @@ router.put('/:id', [
   body('notes')
     .optional()
     .isLength({ max: 1000 })
-    .withMessage('Les notes ne doivent pas dépasser 1000 caractères')
+    .withMessage('Les notes ne doivent pas dépasser 1000 caractères'),
+  body('compte_fin_id')
+    .optional({ values: 'falsy', nullable: true })
+    .custom((v) => v === null || v === undefined || (Number.isInteger(Number(v)) && Number(v) >= 0))
+    .withMessage('Le compte Finances doit être un entier ou null pour dissocier')
 ], async (req, res) => {
   try {
     // Vérifier les erreurs de validation
@@ -373,8 +379,10 @@ router.put('/:id', [
       });
     }
 
+    const updateData = { ...req.body };
+    if ('compte_fin_id' in req.body) updateData.compte_fin_id = req.body.compte_fin_id ? parseInt(req.body.compte_fin_id, 10) : null;
     // Mettre à jour la caisse
-    await caisse.update(req.body);
+    await caisse.update(updateData);
 
     res.json({
       success: true,

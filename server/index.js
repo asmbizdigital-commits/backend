@@ -302,7 +302,7 @@ app.get('/api/health', async (req, res) => {
     await sequelize.authenticate();
     res.json({ 
       status: 'OK', 
-      message: 'Hôtel Beatrice Management System is running',
+      message: 'SYNAPTA SYS is running',
       timestamp: new Date().toISOString(),
       database: 'Connected',
       uptime: process.uptime(),
@@ -471,7 +471,7 @@ async function startServer() {
     console.log(`📊 Service de monitoring des stocks démarré (intervalle: ${monitoringInterval / 1000}s)`);
     
     const server = http.listen(PORT, () => {
-      console.log(`🚀 Hôtel Beatrice Management System running on port ${PORT}`);
+      console.log(`🚀 SYNAPTA SYS running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 API Base URL: http://localhost:${PORT}/api`);
       console.log(`💾 Database: ${sequelize.getDatabaseName()}`);

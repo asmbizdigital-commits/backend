@@ -1218,7 +1218,7 @@ router.post('/factures/:id/envoyer-email', [
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@hotel-beatrice.com',
       to: toEmail,
-      subject: `Facture ${facture.numero} - ${process.env.APP_NAME || 'Hôtel Beatrice'}`,
+      subject: `Facture ${facture.numero} - ${process.env.APP_NAME || 'SYNAPTA SYS'}`,
       text: `Bonjour,\n\nVeuillez trouver ci-joint la facture ${facture.numero}.\n\nCordialement.`,
       attachments: [{ filename: `Facture-${facture.numero}.pdf`, content: buffer }]
     });

@@ -18,8 +18,42 @@ function isTableMissing(err) {
   return /doesn't exist|ER_NO_SUCH_TABLE|Unknown table/i.test(msg);
 }
 
+const { sequelize } = require('../config/database');
+const { QueryTypes } = require('sequelize');
+
 const router = express.Router();
 router.use(authenticateToken);
+
+// GET /api/taux-jour/derniers-jours?jours=5 — récupère les taux des N derniers jours (dates ayant au moins un taux)
+router.get('/derniers-jours', [
+  query('jours').optional().isInt({ min: 1, max: 31 }).withMessage('jours entre 1 et 31')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    const jours = parseInt(req.query.jours, 10) || 5;
+    const datesRows = await sequelize.query(
+      'SELECT DISTINCT date FROM tbl_taux_jour ORDER BY date DESC LIMIT :limit',
+      { replacements: { limit: jours }, type: QueryTypes.SELECT }
+    );
+    const dates = Array.isArray(datesRows) ? datesRows.map(r => r.date) : [];
+    if (dates.length === 0) return res.json({ items: [] });
+    const rows = await TauxJour.findAll({
+      where: { date: dates },
+      order: [['date', 'DESC'], ['devise', 'ASC']],
+      raw: true
+    });
+    const byDate = {};
+    dates.forEach(d => { byDate[d] = emptyRates(); });
+    rows.forEach(r => { byDate[r.date][r.devise] = parseFloat(r.taux); });
+    const items = dates.map(date => ({ date, rates: byDate[date] }));
+    return res.json({ items });
+  } catch (err) {
+    if (isTableMissing(err)) return res.json({ items: [] });
+    console.error('Taux-jour derniers-jours:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
 
 // GET /api/taux-jour?date=YYYY-MM-DD — récupère les taux pour une date (défaut: aujourd'hui)
 router.get('/', [

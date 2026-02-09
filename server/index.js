@@ -79,13 +79,7 @@ const http = require('http').createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(http, {
   cors: {
-    origin: [
-      'https://hotelbeatricesys.com',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://beatrice-frontend.onrender.com',
-      process.env.FRONTEND_URL || '*'
-    ],
+    origin: true, // accepte toute origine (synaptasys.com, hotelbeatricesys.com, localhost, etc.)
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
@@ -163,36 +157,9 @@ const limiter = rateLimit({
 // Apply rate limiting to all routes
 app.use('/api/', limiter);
 
-// CORS configuration - Production-ready with fallback
+// CORS configuration - Autorise toutes les origines
 app.use(cors({
-  origin: function (origin, callback) {
-    // List of allowed origins
-    const allowedOrigins = [
-      'https://hotelbeatricesys.com',
-      'http://localhost:3000',
-      'http://localhost:3001'
-    ];
-    
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-    
-    // For production, be more strict
-    if (process.env.NODE_ENV === 'production') {
-      // Only allow hotelbeatricesys.com in production
-      if (origin === 'https://hotelbeatricesys.com') {
-        return callback(null, true);
-      }
-      return callback(new Error('Not allowed by CORS in production'));
-    }
-    
-    // In development, allow all localhost origins
-    callback(null, true);
-  },
+  origin: true, // reflète l'origine de la requête (accepte toute source)
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'X-File-Name'],
@@ -203,26 +170,15 @@ app.use(cors({
 // Handle preflight requests
 app.options('*', cors());
 
-// Additional CORS headers for all responses
+// Additional CORS headers - toute origine acceptée
 app.use((req, res, next) => {
-  // Determine allowed origin based on request origin and environment
-  let allowedOrigin = 'http://localhost:3000'; // default
-  
-  if (req.headers.origin) {
-    if (req.headers.origin === 'https://hotelbeatricesys.com') {
-      allowedOrigin = 'https://hotelbeatricesys.com';
-    } else if (req.headers.origin.startsWith('http://localhost:')) {
-      allowedOrigin = req.headers.origin;
-    }
+  const origin = req.headers.origin;
+  // Avec credentials: true, on doit renvoyer l'origine demandée (pas *)
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
   }
-    
-  // Debug CORS requests
-  console.log(`🌐 CORS Request: ${req.method} ${req.originalUrl}`);
-  console.log(`📍 Origin: ${req.headers.origin}`);
-  console.log(`🏭 Environment: ${process.env.NODE_ENV}`);
-  console.log(`✅ Allowed Origin: ${allowedOrigin}`);
-    
-  res.header('Access-Control-Allow-Origin', allowedOrigin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-File-Name');
   res.header('Access-Control-Allow-Credentials', 'true');

@@ -73,6 +73,7 @@ const operateursMinesRoutes = require('./routes/operateurs-mines');
 const titresPermisMinesRoutes = require('./routes/titres-permis-mines');
 const inspectionsTerrainMinesRoutes = require('./routes/inspections-terrain-mines');
 const tauxJourRoutes = require('./routes/taux-jour');
+const parametresSysRoutes = require('./routes/parametres-sys');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -293,6 +294,7 @@ app.use('/api/mines/operateurs', operateursMinesRoutes);
 app.use('/api/mines/titres-permis', titresPermisMinesRoutes);
 app.use('/api/mines/inspections-terrain', inspectionsTerrainMinesRoutes);
 app.use('/api/taux-jour', tauxJourRoutes);
+app.use('/api/parametres-sys', parametresSysRoutes);
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));

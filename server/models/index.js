@@ -76,6 +76,7 @@ const OperateurMine = require('./OperateurMine');
 const TitrePermisMine = require('./TitrePermisMine');
 const InspectionTerrainMine = require('./InspectionTerrainMine');
 const TauxJour = require('./TauxJour');
+const ParametresSys = require('./ParametresSys');
 // Alerte model removed
 
 // Associations pour les problématiques

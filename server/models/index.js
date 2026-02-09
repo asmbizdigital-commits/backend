@@ -75,6 +75,7 @@ const PaiementRedevance = require('./PaiementRedevance');
 const OperateurMine = require('./OperateurMine');
 const TitrePermisMine = require('./TitrePermisMine');
 const InspectionTerrainMine = require('./InspectionTerrainMine');
+const TauxJour = require('./TauxJour');
 // Alerte model removed
 
 // Associations pour les problématiques

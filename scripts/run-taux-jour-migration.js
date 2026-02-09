@@ -14,7 +14,7 @@ async function runMigration() {
     await sequelize.authenticate();
     console.log('✅ Connexion à la base de données réussie\n');
 
-    const sqlPath = path.join(__dirname, '../../database/migration_tbl_taux_jour.sql');
+    const sqlPath = path.join(__dirname, '../database/migration_tbl_taux_jour.sql');
     if (!fs.existsSync(sqlPath)) {
       throw new Error(`Fichier SQL non trouvé: ${sqlPath}`);
     }

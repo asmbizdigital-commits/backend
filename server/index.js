@@ -465,7 +465,27 @@ async function startServer() {
     };
     
     console.log('✅ Database connection ready with connection pooling.');
-    
+
+    // Créer tbl_taux_jour si absente (évite 503 sur PUT /api/taux-jour en production)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_taux_jour (
+          id INT NOT NULL AUTO_INCREMENT,
+          date DATE NOT NULL,
+          devise VARCHAR(5) NOT NULL,
+          taux DECIMAL(18, 4) NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_taux_jour_date_devise (date, devise),
+          KEY idx_taux_jour_date (date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Table tbl_taux_jour prête.');
+    } catch (err) {
+      console.warn('⚠️ tbl_taux_jour:', err.message);
+    }
+
     // Démarrer le service de monitoring des stocks
     const stockMonitoringService = require('./services/stockMonitoringService');
     const monitoringInterval = parseInt(process.env.STOCK_MONITORING_INTERVAL || '60000', 10); // 1 minute par défaut

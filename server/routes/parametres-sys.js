@@ -3,7 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const ParametresSys = require('../models/ParametresSys');
 
-const SECTIONS = ['general', 'societe', 'finances', 'facturation', 'affichage'];
+const SECTIONS = ['general', 'societe', 'finances', 'facturation', 'affichage', 'type_logiciel'];
 
 const DEFAULTS = {
   general: {
@@ -43,6 +43,9 @@ const DEFAULTS = {
     logo_url: '',
     nom_rapports: 'SYNAPTA SYS',
     pied_de_page_rapports: 'Document généré par SYNAPTA SYS'
+  },
+  type_logiciel: {
+    type: 'asm_erp' // 'hotel' | 'asm_erp' | 'igm_erp'
   }
 };
 
@@ -85,7 +88,10 @@ router.put('/', [
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation failed', details: errors.array() });
     const { section, data } = req.body;
-    const merged = { ...DEFAULTS[section], ...data };
+    let merged = { ...DEFAULTS[section], ...data };
+    if (section === 'type_logiciel' && merged.type && !['hotel', 'asm_erp', 'igm_erp'].includes(merged.type)) {
+      merged.type = DEFAULTS.type_logiciel.type;
+    }
     const [row] = await ParametresSys.findOrCreate({
       where: { section },
       defaults: { data: merged }

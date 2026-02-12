@@ -58,7 +58,9 @@ function isTableMissing(err) {
 const router = express.Router();
 router.use(authenticateToken);
 
-// GET /api/parametres-sys — tous les paramètres (fusion DB + défauts)
+// GET /api/parametres-sys — tous les paramètres (fusion DB + défauts).
+// À la connexion, le frontend utilise type_logiciel.type (hotel | asm_erp | igm_erp) pour afficher
+// les menus selon le type d’entreprise ; le rôle utilisateur filtre ensuite ce qui est visible.
 router.get('/', async (req, res) => {
   try {
     const rows = await ParametresSys.findAll({ raw: true });

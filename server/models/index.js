@@ -77,6 +77,8 @@ const TitrePermisMine = require('./TitrePermisMine');
 const InspectionTerrainMine = require('./InspectionTerrainMine');
 const TauxJour = require('./TauxJour');
 const ParametresSys = require('./ParametresSys');
+const SoumissionBesoins = require('./SoumissionBesoins');
+const SoumissionBesoinsLigne = require('./SoumissionBesoinsLigne');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -379,6 +381,18 @@ LigneDemandeFonds.belongsTo(Inventaire, {
   foreignKey: 'inventaire_id', 
   as: 'inventaire' 
 });
+
+// Associations pour les soumissions de besoins
+User.hasMany(SoumissionBesoins, { foreignKey: 'demandeur_id', as: 'SoumissionsBesoinsDemandeur' });
+SoumissionBesoins.belongsTo(User, { foreignKey: 'demandeur_id', as: 'demandeur' });
+User.hasMany(SoumissionBesoins, { foreignKey: 'superviseur_id', as: 'SoumissionsBesoinsSuperviseur' });
+SoumissionBesoins.belongsTo(User, { foreignKey: 'superviseur_id', as: 'superviseur' });
+SoumissionBesoins.hasMany(SoumissionBesoinsLigne, { foreignKey: 'soumission_besoins_id', as: 'lignes', onDelete: 'CASCADE' });
+SoumissionBesoinsLigne.belongsTo(SoumissionBesoins, { foreignKey: 'soumission_besoins_id', as: 'soumission' });
+SoumissionBesoinsLigne.belongsTo(Inventaire, { foreignKey: 'inventaire_id', as: 'inventaire' });
+Inventaire.hasMany(SoumissionBesoinsLigne, { foreignKey: 'inventaire_id', as: 'SoumissionBesoinsLignes' });
+SoumissionBesoinsLigne.belongsTo(Chambre, { foreignKey: 'chambre_id', as: 'chambre' });
+Chambre.hasMany(SoumissionBesoinsLigne, { foreignKey: 'chambre_id', as: 'SoumissionBesoinsLignes' });
 
 // Associations pour les fiches d'exécution
 FicheExecution.belongsTo(Tache, { 
@@ -865,5 +879,7 @@ module.exports = {
   OperateurMine,
   TitrePermisMine,
   InspectionTerrainMine,
+  SoumissionBesoins,
+  SoumissionBesoinsLigne,
   // Alerte removed
 }; 

@@ -508,6 +508,51 @@ async function startServer() {
       console.warn('⚠️ tbl_parametres_sys:', err.message);
     }
 
+    // Créer tbl_soumissions_besoins et tbl_soumissions_besoins_lignes si absentes
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_soumissions_besoins (
+          id INT NOT NULL AUTO_INCREMENT,
+          type ENUM('materiel', 'fonds') NOT NULL,
+          demandeur_id INT NOT NULL,
+          superviseur_id INT NOT NULL,
+          statut ENUM('en_attente', 'approuvee', 'rejetee', 'annulee') NOT NULL DEFAULT 'en_attente',
+          motif TEXT,
+          commentaire TEXT,
+          montant_total DECIMAL(14, 2) NULL,
+          devise ENUM('EUR', 'USD', 'FC') NULL DEFAULT 'FC',
+          commentaire_superviseur TEXT,
+          date_validation DATETIME NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_soumissions_besoins_demandeur (demandeur_id),
+          KEY idx_soumissions_besoins_superviseur (superviseur_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_soumissions_besoins_lignes (
+          id INT NOT NULL AUTO_INCREMENT,
+          soumission_besoins_id INT NOT NULL,
+          type_ligne ENUM('article', 'libelle') NOT NULL DEFAULT 'libelle',
+          inventaire_id INT NULL,
+          chambre_id INT NULL,
+          libelle VARCHAR(255) NULL,
+          montant DECIMAL(14, 2) NULL,
+          quantite INT NULL DEFAULT 1,
+          prix_unitaire DECIMAL(14, 2) NULL,
+          devise ENUM('EUR', 'USD', 'FC') NULL DEFAULT 'FC',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_sb_lignes_soumission (soumission_besoins_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Tables tbl_soumissions_besoins prêtes.');
+    } catch (err) {
+      console.warn('⚠️ tbl_soumissions_besoins:', err.message);
+    }
+
     // Démarrer le service de monitoring des stocks
     const stockMonitoringService = require('./services/stockMonitoringService');
     const monitoringInterval = parseInt(process.env.STOCK_MONITORING_INTERVAL || '60000', 10); // 1 minute par défaut

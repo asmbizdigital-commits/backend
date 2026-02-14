@@ -1,7 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { CircuitDepense, User } = require('../models');
+const { CircuitDepense, User, SoumissionBesoins, DemandeFonds, Depense } = require('../models');
+
+const ETAPES = {
+  1: 'Soumission besoin (fonds)',
+  2: 'Demande de fonds créée',
+  3: 'Décaissement en attente',
+  4: 'Décaissement approuvé par auditeur',
+  5: 'Paiement programmé',
+  6: 'Paiement effectué'
+};
 
 router.use(authenticateToken);
 
@@ -52,6 +61,147 @@ router.get('/', requireRole(['Patron', 'Administrateur', 'Superviseur Finance', 
       return res.json({ success: true, data: [] });
     }
     res.status(500).json({ success: false, message: 'Erreur lors du chargement des circuits' });
+  }
+});
+
+// POST /api/circuits-depenses/backfill - Remplir les circuits à partir des soumissions/demandes/dépenses existantes
+router.post('/backfill', requireRole(['Patron', 'Administrateur']), async (req, res) => {
+  try {
+    let created = 0;
+
+    // 1. Étape 1 : soumissions type fonds
+    const soumissions = await SoumissionBesoins.findAll({
+      where: { type: 'fonds' },
+      order: [['id', 'ASC']]
+    });
+    for (const s of soumissions) {
+      const circuitRef = 'SB-' + s.id;
+      const exists = await CircuitDepense.findOne({ where: { circuit_ref: circuitRef, etape: 1 } });
+      if (!exists) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 1,
+          libelle_etape: ETAPES[1],
+          soumission_besoins_id: s.id,
+          date_etape: s.created_at || new Date(),
+          created_by: s.demandeur_id
+        });
+        created++;
+      }
+    }
+
+    // 2. Étape 2 : demandes de fonds
+    const demandes = await DemandeFonds.findAll({
+      where: { statut: 'approuvee' },
+      order: [['created_at', 'ASC']]
+    });
+    const soumissionsApprouvees = await SoumissionBesoins.findAll({
+      where: { type: 'fonds', statut: 'approuvee' },
+      order: [['date_validation', 'ASC']]
+    });
+    for (const d of demandes) {
+      let soumissionId = null;
+      const motif = (d.motif || '') + ' ' + (d.commentaire || '');
+      const match = motif.match(/Soumission\s*besoins?\s*#?\s*(\d+)/i);
+      if (match) soumissionId = parseInt(match[1], 10);
+      else {
+        const dDate = d.created_at ? new Date(d.created_at).getTime() : 0;
+        const candidates = soumissionsApprouvees.filter((s) => {
+          if (s.demandeur_id !== d.demandeur_id || s.superviseur_id !== d.superviseur_id) return false;
+          const sDate = s.date_validation ? new Date(s.date_validation).getTime() : 0;
+          if (Math.abs(dDate - sDate) > 10 * 60 * 1000) return false;
+          return Math.abs(parseFloat(s.montant_total || 0) - parseFloat(d.montant_total || 0)) < 0.02;
+        });
+        if (candidates.length >= 1) {
+          const closest = candidates.reduce((a, b) =>
+            Math.abs(new Date(b.date_validation).getTime() - dDate) < Math.abs(new Date(a.date_validation).getTime() - dDate) ? b : a
+          );
+          soumissionId = closest.id;
+        }
+      }
+      if (!soumissionId) continue;
+      const circuitRef = 'SB-' + soumissionId;
+      const exists = await CircuitDepense.findOne({ where: { demande_fonds_id: d.id, etape: 2 } });
+      if (!exists) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 2,
+          libelle_etape: ETAPES[2],
+          demande_fonds_id: d.id,
+          date_etape: d.date_validation || d.created_at || new Date(),
+          created_by: d.superviseur_id
+        });
+        created++;
+      }
+    }
+
+    // 3. Étapes 3–6 : dépenses
+    const depenses = await Depense.findAll({ order: [['id', 'ASC']] });
+    for (const dep of depenses) {
+      const notes = (dep.notes || '') + ' ' + (dep.description || '');
+      const match = notes.match(/demande\s*de\s*fonds\s*#?\s*(\d+)/i) || notes.match(/Demande de fonds approuvée #(\d+)/i);
+      const demandeId = match ? parseInt(match[1], 10) : null;
+      if (!demandeId) continue;
+      const rowEtape2 = await CircuitDepense.findOne({
+        where: { demande_fonds_id: demandeId, etape: 2 },
+        attributes: ['circuit_ref']
+      });
+      const circuitRef = rowEtape2 ? rowEtape2.circuit_ref : null;
+      if (!circuitRef) continue;
+
+      const depId = dep.id;
+      const dateBase = dep.date_paiement || dep.updated_at || dep.created_at || new Date();
+
+      if (!(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 3 } }))) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 3,
+          libelle_etape: ETAPES[3],
+          depense_id: depId,
+          date_etape: dep.created_at || dateBase,
+          created_by: dep.approbateur_id
+        });
+        created++;
+      }
+      if ((dep.statut === 'Approuvée' || dep.statut === 'Payée') && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 4 } }))) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 4,
+          libelle_etape: ETAPES[4],
+          depense_id: depId,
+          date_etape: dep.updated_at || dateBase,
+          created_by: dep.approbateur_id
+        });
+        created++;
+      }
+      if (dep.date_paiement_prevue && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 5 } }))) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 5,
+          libelle_etape: ETAPES[5],
+          depense_id: depId,
+          date_etape: dep.updated_at || dateBase,
+          created_by: dep.responsable_paiement_id || dep.approbateur_id
+        });
+        created++;
+      }
+      if (dep.statut === 'Payée' && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 6 } }))) {
+        await CircuitDepense.create({
+          circuit_ref: circuitRef,
+          etape: 6,
+          libelle_etape: ETAPES[6],
+          depense_id: depId,
+          date_etape: dep.date_paiement || dep.updated_at || dateBase,
+          created_by: dep.responsable_paiement_id || dep.approbateur_id
+        });
+        created++;
+      }
+    }
+
+    res.json({ success: true, created, message: `${created} étape(s) créée(s)` });
+  } catch (error) {
+    console.error('POST circuits-depenses/backfill:', error);
+    res.status(500).json({ success: false, message: error.message || 'Erreur lors du backfill' });
   }
 });
 

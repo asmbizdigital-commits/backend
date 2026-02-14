@@ -9,14 +9,17 @@ router.use(authenticateToken);
 router.get('/', requireRole(['Patron', 'Administrateur', 'Superviseur Finance', 'Auditeur']), async (req, res) => {
   try {
     const rows = await CircuitDepense.findAll({
-      include: [
-        { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'], required: false }
-      ],
       order: [['circuit_ref', 'ASC'], ['etape', 'ASC']]
     });
 
     // Grouper par circuit_ref
     const byRef = {};
+    const userIds = [...new Set(rows.map((r) => r.created_by).filter(Boolean))];
+    const users = userIds.length
+      ? await User.findAll({ where: { id: userIds }, attributes: ['id', 'nom', 'prenom'] })
+      : [];
+    const userMap = Object.fromEntries(users.map((u) => [u.id, { id: u.id, nom: u.nom, prenom: u.prenom }]));
+
     for (const r of rows) {
       const ref = r.circuit_ref;
       if (!byRef[ref]) byRef[ref] = { circuit_ref: ref, etapes: [] };
@@ -26,7 +29,7 @@ router.get('/', requireRole(['Patron', 'Administrateur', 'Superviseur Finance', 
         libelle_etape: r.libelle_etape,
         date_etape: r.date_etape,
         created_by: r.created_by,
-        createur: r.createur ? { id: r.createur.id, nom: r.createur.nom, prenom: r.createur.prenom } : null,
+        createur: r.created_by ? userMap[r.created_by] || null : null,
         soumission_besoins_id: r.soumission_besoins_id,
         demande_fonds_id: r.demande_fonds_id,
         depense_id: r.depense_id,
@@ -43,6 +46,11 @@ router.get('/', requireRole(['Patron', 'Administrateur', 'Superviseur Finance', 
     res.json({ success: true, data: circuits });
   } catch (error) {
     console.error('GET circuits-depenses:', error);
+    // Si la table n'existe pas (migration non exécutée en prod), retourner une liste vide
+    const msg = error.message || '';
+    if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('tbl_circuits_depenses')) {
+      return res.json({ success: true, data: [] });
+    }
     res.status(500).json({ success: false, message: 'Erreur lors du chargement des circuits' });
   }
 });

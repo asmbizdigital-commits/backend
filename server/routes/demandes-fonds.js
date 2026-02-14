@@ -1,7 +1,10 @@
 const express = require('express');
+const { Op } = require('sequelize');
 const router = express.Router();
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { DemandeFonds, LigneDemandeFonds, User, Inventaire, Depense } = require('../models');
+
+const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
 
 // Récupérer toutes les demandes de fonds (avec pagination)
 router.get('/', authenticateToken, async (req, res) => {
@@ -14,12 +17,20 @@ router.get('/', authenticateToken, async (req, res) => {
     if (type) where.type = type;
     if (demandeur_id) where.demandeur_id = demandeur_id;
     
-    // Déterminer les rôles qui peuvent voir toutes les demandes
+    // Patron, Auditeur, Superviseur Finance : voient toutes les demandes
     const canViewAll = ['Patron', 'Auditeur', 'Superviseur Finance'].includes(req.user.role);
+    // Superviseurs : voient leurs demandes (demandeur) + celles dont ils sont superviseur
+    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
     
-    // Si l'utilisateur n'est pas dans les rôles autorisés, ne montrer que ses demandes
     if (!canViewAll) {
-      where.demandeur_id = req.user.id;
+      if (isSuperviseur) {
+        where[Op.or] = [
+          { demandeur_id: req.user.id },
+          { superviseur_id: req.user.id }
+        ];
+      } else {
+        where.demandeur_id = req.user.id;
+      }
     }
     
     const { count, rows: demandes } = await DemandeFonds.findAndCountAll({
@@ -108,9 +119,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
     
     // Vérifier les permissions
-    // Seuls Patron, Auditeur et Superviseur Finance peuvent voir toutes les demandes
     const canViewAll = ['Patron', 'Auditeur', 'Superviseur Finance'].includes(req.user.role);
-    if (!canViewAll && demande.demandeur_id !== req.user.id) {
+    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
+    if (!canViewAll && demande.demandeur_id !== req.user.id && (!isSuperviseur || demande.superviseur_id !== req.user.id)) {
       return res.status(403).json({ 
         success: false, 
         message: 'Accès non autorisé' 
@@ -228,9 +239,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     
     // Vérifier les permissions
-    // Seuls Patron, Auditeur et Superviseur Finance peuvent voir toutes les demandes
     const canViewAll = ['Patron', 'Auditeur', 'Superviseur Finance'].includes(req.user.role);
-    if (!canViewAll && demande.demandeur_id !== req.user.id) {
+    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
+    if (!canViewAll && demande.demandeur_id !== req.user.id && (!isSuperviseur || demande.superviseur_id !== req.user.id)) {
       return res.status(403).json({ 
         success: false, 
         message: 'Accès non autorisé' 
@@ -470,9 +481,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     // Vérifier les permissions
-    // Seuls Patron, Auditeur et Superviseur Finance peuvent voir toutes les demandes
     const canViewAll = ['Patron', 'Auditeur', 'Superviseur Finance'].includes(req.user.role);
-    if (!canViewAll && demande.demandeur_id !== req.user.id) {
+    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
+    if (!canViewAll && demande.demandeur_id !== req.user.id && (!isSuperviseur || demande.superviseur_id !== req.user.id)) {
       return res.status(403).json({ 
         success: false, 
         message: 'Accès non autorisé' 

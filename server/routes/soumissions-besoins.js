@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre } = require('../models');
+const Notification = require('../models/Notification');
 const { Op } = require('sequelize');
 
 const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
@@ -190,6 +191,33 @@ router.post('/', [
         { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Chambre, as: 'chambre' }] }
       ]
     });
+
+    // Notification envoyée uniquement au superviseur sélectionné
+    const demandeur = req.user;
+    const demandeurNom = demandeur?.nom ? `${demandeur.prenom || ''} ${demandeur.nom}`.trim() || demandeur.email : 'Un utilisateur';
+    const typeLabel = type === 'materiel' ? 'matériel' : 'fonds';
+    const notifPayload = {
+      title: 'Nouvelle soumission de besoins',
+      message: `${demandeurNom} a soumis un besoin en ${typeLabel} (soumission #${s.id}).`,
+      type: 'info',
+      link: '/soumissions-besoins',
+      target_roles: JSON.stringify(['user:' + superviseur_id]),
+      created_by: req.user.id
+    };
+    const notif = await Notification.create(notifPayload);
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${superviseur_id}`).emit('notification', {
+        id: notif.id,
+        title: notifPayload.title,
+        message: notifPayload.message,
+        type: notifPayload.type,
+        link: notifPayload.link,
+        target_roles: ['user:' + superviseur_id],
+        created_at: notif.created_at
+      });
+    }
+
     res.status(201).json({ success: true, data: created });
   } catch (error) {
     console.error('Erreur POST soumissions-besoins:', error);

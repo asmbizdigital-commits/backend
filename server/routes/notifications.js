@@ -53,11 +53,22 @@ router.post('/', [
   }
 });
 
-// GET /api/notifications - list recent
+// GET /api/notifications - list recent (filtrées : générales, par rôle, ou ciblées user:X)
 router.get('/', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-    const rows = await Notification.findAll({ order: [['created_at','DESC']], limit });
+    const all = await Notification.findAll({ order: [['created_at','DESC']], limit: limit * 3 });
+    const rows = all.filter((n) => {
+      if (!n.target_roles) return true; // générales
+      let roles;
+      try {
+        roles = typeof n.target_roles === 'string' ? JSON.parse(n.target_roles) : n.target_roles;
+      } catch { return false; }
+      if (!Array.isArray(roles) || roles.length === 0) return true;
+      if (roles.includes(req.user.role)) return true;
+      if (roles.includes('user:' + req.user.id)) return true;
+      return false;
+    }).slice(0, limit);
     res.json({ success: true, data: rows });
   } catch (error) {
     console.error('Error listing notifications:', error);

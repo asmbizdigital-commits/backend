@@ -58,7 +58,9 @@ router.get('/', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const all = await Notification.findAll({ order: [['created_at','DESC']], limit: limit * 3 });
+    const isTestNotification = (n) => (n.title || '').toLowerCase().includes('test notification');
     const rows = all.filter((n) => {
+      if (isTestNotification(n)) return false;
       if (!n.target_roles) return true; // générales
       let roles;
       try {

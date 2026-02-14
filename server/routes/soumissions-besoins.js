@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
-const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre } = require('../models');
+const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre, DemandeFonds, LigneDemandeFonds } = require('../models');
 const Notification = require('../models/Notification');
 const { Op } = require('sequelize');
 
@@ -325,7 +325,9 @@ router.put('/:id/status', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
-    const s = await SoumissionBesoins.findByPk(req.params.id);
+    const s = await SoumissionBesoins.findByPk(req.params.id, {
+      include: [{ model: SoumissionBesoinsLigne, as: 'lignes' }]
+    });
     if (!s) return res.status(404).json({ success: false, message: 'Soumission non trouvée' });
     if (s.superviseur_id !== req.user.id) {
       return res.status(403).json({ success: false, message: 'Seul le superviseur ciblé peut valider ou rejeter' });
@@ -333,10 +335,58 @@ router.put('/:id/status', [
     if (s.statut !== 'en_attente') {
       return res.status(400).json({ success: false, message: 'Soumission déjà traitée' });
     }
-    s.statut = req.body.statut;
-    s.commentaire_superviseur = req.body.commentaire_superviseur || null;
+
+    const statut = req.body.statut;
+    const commentaire_superviseur = req.body.commentaire_superviseur || null;
+
+    // Si approuvée et type fonds : créer automatiquement une demande de fonds en attente
+    if (statut === 'approuvee' && s.type === 'fonds') {
+      const devise = (s.devise || 'FC').toUpperCase();
+      const deviseValide = ['EUR', 'USD', 'FC'].includes(devise) ? devise : 'FC';
+      const lignes = s.lignes || [];
+      const lignesValides = lignes.filter(l => {
+        if (l.type_ligne === 'libelle') return l.libelle && parseFloat(l.montant) > 0;
+        return l.inventaire_id && (l.quantite || 1) > 0 && parseFloat(l.prix_unitaire) > 0;
+      });
+      if (lignesValides.length > 0) {
+        const demande = await DemandeFonds.create({
+          type: 'demande_fonds',
+          statut: 'en_attente',
+          montant_total: s.montant_total || lignesValides.reduce((sum, l) => {
+            if (l.type_ligne === 'article') return sum + (parseFloat(l.quantite || 1) * parseFloat(l.prix_unitaire || 0));
+            return sum + parseFloat(l.montant || 0);
+          }, 0),
+          devise: deviseValide,
+          motif: s.motif || s.commentaire || 'Soumission besoins #' + s.id,
+          commentaire: s.commentaire || null,
+          demandeur_id: s.demandeur_id,
+          superviseur_id: s.superviseur_id
+        });
+        const lignesDemande = lignesValides.map(l => {
+          const typeLigne = l.type_ligne === 'article' ? 'article' : 'libelle';
+          const montant = typeLigne === 'article'
+            ? parseFloat(l.quantite || 1) * parseFloat(l.prix_unitaire || 0)
+            : parseFloat(l.montant || 0);
+          return {
+            demande_fonds_id: demande.id,
+            type_ligne: typeLigne,
+            libelle: l.libelle || null,
+            montant,
+            devise: deviseValide,
+            inventaire_id: l.inventaire_id || null,
+            quantite: typeLigne === 'article' ? (l.quantite || 1) : 1,
+            prix_unitaire: typeLigne === 'article' ? parseFloat(l.prix_unitaire || 0) : null
+          };
+        });
+        await LigneDemandeFonds.bulkCreate(lignesDemande);
+      }
+    }
+
+    s.statut = statut;
+    s.commentaire_superviseur = commentaire_superviseur;
     s.date_validation = new Date();
     await s.save();
+
     const result = await SoumissionBesoins.findByPk(s.id, {
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },

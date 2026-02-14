@@ -7,6 +7,7 @@ const Depense = require('../models/Depense');
 const User = require('../models/User');
 const Chambre = require('../models/Chambre');
 const Caisse = require('../models/Caisse');
+const CircuitDepense = require('../models/CircuitDepense');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -395,6 +396,15 @@ router.post('/:id/approve', [
     }
 
     await depense.approve(req.user.id);
+    // Circuit dépenses : étape 4 (décaissement approuvé par auditeur)
+    try {
+      const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
+      if (circuitRef) {
+        await CircuitDepense.creerEtape4(circuitRef, parseInt(id), req.user.id);
+      }
+    } catch (circuitErr) {
+      console.error('Circuit dépenses étape 4:', circuitErr);
+    }
 
     res.json({
       message: 'Dépense approuvée avec succès',
@@ -448,6 +458,51 @@ router.post('/:id/reject', [
   }
 });
 
+// PATCH /api/depenses/:id/programmer-paiement - Programmer la date de paiement (étape 5 circuit)
+router.patch('/:id/programmer-paiement', [
+  requireRole(['Administrateur', 'Patron', 'Superviseur Finance', 'Superviseur']),
+  body('date_paiement_prevue').optional({ values: 'null' }).isISO8601().withMessage('Date invalide')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const { id } = req.params;
+    const depense = await Depense.findByPk(id);
+    if (!depense) {
+      return res.status(404).json({ error: 'Dépense non trouvée' });
+    }
+    if (depense.statut !== 'Approuvée') {
+      return res.status(400).json({
+        error: 'Seule une dépense approuvée peut avoir une date de paiement programmée',
+        message: 'Dépense non approuvée'
+      });
+    }
+    const { date_paiement_prevue } = req.body;
+    await depense.update({ date_paiement_prevue: date_paiement_prevue || null });
+    // Circuit dépenses : étape 5 (paiement programmé)
+    try {
+      const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
+      if (circuitRef) {
+        await CircuitDepense.creerEtape5(circuitRef, parseInt(id), req.user.id);
+      }
+    } catch (circuitErr) {
+      console.error('Circuit dépenses étape 5:', circuitErr);
+    }
+    res.json({
+      message: 'Paiement programmé avec succès',
+      depense
+    });
+  } catch (error) {
+    console.error('Programmer paiement error:', error);
+    res.status(500).json({
+      error: 'Erreur lors de la programmation du paiement',
+      message: error.message
+    });
+  }
+});
+
 // POST /api/depenses/:id/pay - Mark expense as paid (Administrateur, Patron, and Superviseur Finance)
 router.post('/:id/pay', [
   requireRole(['Administrateur', 'Patron', 'Superviseur Finance'])
@@ -471,6 +526,15 @@ router.post('/:id/pay', [
     }
 
     await depense.pay();
+    // Circuit dépenses : étape 6 (paiement effectué)
+    try {
+      const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
+      if (circuitRef) {
+        await CircuitDepense.creerEtape6(circuitRef, parseInt(id), req.user.id);
+      }
+    } catch (circuitErr) {
+      console.error('Circuit dépenses étape 6:', circuitErr);
+    }
 
     res.json({
       message: 'Dépense marquée comme payée avec succès',
@@ -530,6 +594,15 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
       montant_paye: depense.montant,
       date_paiement: date_paiement || new Date()
     });
+    // Circuit dépenses : étape 6 (paiement effectué)
+    try {
+      const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(depense_id));
+      if (circuitRef) {
+        await CircuitDepense.creerEtape6(circuitRef, parseInt(depense_id), req.user.id);
+      }
+    } catch (circuitErr) {
+      console.error('Circuit dépenses étape 6:', circuitErr);
+    }
 
     // Mettre à jour le solde de la caisse
     try {

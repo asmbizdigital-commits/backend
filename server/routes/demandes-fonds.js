@@ -2,7 +2,7 @@ const express = require('express');
 const { Op } = require('sequelize');
 const router = express.Router();
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { DemandeFonds, LigneDemandeFonds, User, Inventaire, Depense } = require('../models');
+const { DemandeFonds, LigneDemandeFonds, User, Inventaire, Depense, CircuitDepense } = require('../models');
 
 const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
 
@@ -446,6 +446,15 @@ router.put('/:id/status', authenticateToken, requireRole(['Superviseur', 'Superv
         });
         
         console.log(`✅ Dépense créée automatiquement: ID ${depense.id} pour la demande de fonds #${demande.id}`);
+        // Circuit dépenses : étape 3 (décaissement en attente)
+        try {
+          const circuitRef = await CircuitDepense.getCircuitRefByDemandeFondsId(demande.id);
+          if (circuitRef) {
+            await CircuitDepense.creerEtape3(circuitRef, depense.id, req.user.id);
+          }
+        } catch (circuitErr) {
+          console.error('Circuit dépenses étape 3:', circuitErr);
+        }
       } catch (depenseError) {
         console.error('❌ Erreur lors de la création automatique de la dépense:', depenseError);
         // On continue même si la création de la dépense échoue

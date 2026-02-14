@@ -1,0 +1,25 @@
+-- Table circuit de validation des dépenses (chaîne : soumission -> demande de fonds -> décaissement -> paiement)
+CREATE TABLE IF NOT EXISTS `tbl_circuits_depenses` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `circuit_ref` VARCHAR(64) NOT NULL COMMENT 'Référence du circuit (ex: SB-123) pour grouper les étapes',
+  `etape` TINYINT NOT NULL COMMENT 'Numéro étape 1 à 6',
+  `libelle_etape` VARCHAR(255) NOT NULL COMMENT 'Libellé de l\'étape',
+  `soumission_besoins_id` INT NULL COMMENT 'Lié à l\'étape 1',
+  `demande_fonds_id` INT NULL COMMENT 'Lié à l\'étape 2',
+  `depense_id` INT NULL COMMENT 'Lié aux étapes 3 à 6',
+  `date_etape` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` INT NULL COMMENT 'Utilisateur ayant déclenché l\'étape',
+  `commentaire` TEXT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_circuit_ref` (`circuit_ref`),
+  KEY `idx_soumission_besoins_id` (`soumission_besoins_id`),
+  KEY `idx_demande_fonds_id` (`demande_fonds_id`),
+  KEY `idx_depense_id` (`depense_id`),
+  KEY `idx_etape` (`etape`),
+  CONSTRAINT `fk_circuits_depenses_soumission` FOREIGN KEY (`soumission_besoins_id`) REFERENCES `tbl_soumissions_besoins` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_circuits_depenses_demande_fonds` FOREIGN KEY (`demande_fonds_id`) REFERENCES `tbl_demandes_fonds` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_circuits_depenses_depense` FOREIGN KEY (`depense_id`) REFERENCES `tbl_depenses` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_circuits_depenses_created_by` FOREIGN KEY (`created_by`) REFERENCES `tbl_utilisateurs` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Circuit de validation des dépenses (6 étapes)';

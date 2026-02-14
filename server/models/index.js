@@ -79,6 +79,7 @@ const TauxJour = require('./TauxJour');
 const ParametresSys = require('./ParametresSys');
 const SoumissionBesoins = require('./SoumissionBesoins');
 const SoumissionBesoinsLigne = require('./SoumissionBesoinsLigne');
+const CircuitDepense = require('./CircuitDepense');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -393,6 +394,12 @@ SoumissionBesoinsLigne.belongsTo(Inventaire, { foreignKey: 'inventaire_id', as: 
 Inventaire.hasMany(SoumissionBesoinsLigne, { foreignKey: 'inventaire_id', as: 'SoumissionBesoinsLignes' });
 SoumissionBesoinsLigne.belongsTo(Chambre, { foreignKey: 'chambre_id', as: 'chambre' });
 Chambre.hasMany(SoumissionBesoinsLigne, { foreignKey: 'chambre_id', as: 'SoumissionBesoinsLignes' });
+
+// Circuit de validation des dépenses
+CircuitDepense.belongsTo(SoumissionBesoins, { foreignKey: 'soumission_besoins_id', as: 'soumission' });
+CircuitDepense.belongsTo(DemandeFonds, { foreignKey: 'demande_fonds_id', as: 'demandeFonds' });
+CircuitDepense.belongsTo(Depense, { foreignKey: 'depense_id', as: 'depense' });
+CircuitDepense.belongsTo(User, { foreignKey: 'created_by', as: 'createur' });
 
 // Associations pour les fiches d'exécution
 FicheExecution.belongsTo(Tache, { 
@@ -881,5 +888,6 @@ module.exports = {
   InspectionTerrainMine,
   SoumissionBesoins,
   SoumissionBesoinsLigne,
+  CircuitDepense,
   // Alerte removed
 }; 

@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
-const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre, DemandeFonds, LigneDemandeFonds } = require('../models');
+const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre, DemandeFonds, LigneDemandeFonds, CircuitDepense } = require('../models');
 const Notification = require('../models/Notification');
 const { Op } = require('sequelize');
 
@@ -184,6 +184,14 @@ router.post('/', [
       return res.status(400).json({ success: false, message: 'Au moins une ligne valide est requise' });
     }
     await SoumissionBesoinsLigne.bulkCreate(lignesData);
+    // Circuit dépenses : étape 1 lorsque soumission type fonds
+    if (type === 'fonds') {
+      try {
+        await CircuitDepense.creerEtape1(s.id, req.user.id);
+      } catch (err) {
+        console.error('Circuit dépenses étape 1:', err);
+      }
+    }
     const created = await SoumissionBesoins.findByPk(s.id, {
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
@@ -379,6 +387,12 @@ router.put('/:id/status', [
           };
         });
         await LigneDemandeFonds.bulkCreate(lignesDemande);
+        // Circuit dépenses : étape 2 (demande de fonds créée)
+        try {
+          await CircuitDepense.creerEtape2('SB-' + s.id, demande.id, req.user.id);
+        } catch (err) {
+          console.error('Circuit dépenses étape 2:', err);
+        }
       }
     }
 

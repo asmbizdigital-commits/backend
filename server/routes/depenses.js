@@ -8,6 +8,8 @@ const User = require('../models/User');
 const Chambre = require('../models/Chambre');
 const Caisse = require('../models/Caisse');
 const CircuitDepense = require('../models/CircuitDepense');
+const pdfService = require('../services/pdfService');
+const { CloudinaryService } = require('../services/cloudinaryService');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
@@ -546,6 +548,63 @@ router.post('/:id/pay', [
     res.status(500).json({ 
       error: 'Failed to mark expense as paid',
       message: 'Erreur lors du marquage de la dépense comme payée'
+    });
+  }
+});
+
+// POST /api/depenses/:id/generer-bon-sortie-caisse - Génère le PDF bon de sortie de caisse et enregistre l'étape 7
+router.post('/:id/generer-bon-sortie-caisse', [
+  requireRole(['Administrateur', 'Patron', 'Superviseur Finance'])
+], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const depense = await Depense.findByPk(id, {
+      include: [{ model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom', 'email'] }]
+    });
+
+    if (!depense) {
+      return res.status(404).json({
+        error: 'Expense not found',
+        message: 'Dépense non trouvée'
+      });
+    }
+
+    if (depense.statut !== 'Payée') {
+      return res.status(400).json({
+        error: 'Invalid expense status',
+        message: 'Seule une dépense payée peut générer un bon de sortie de caisse'
+      });
+    }
+
+    const demandeur = depense.demandeur ? depense.demandeur.get({ plain: true }) : {};
+    const { buffer } = await pdfService.generateBonSortieCaisse(depense.get({ plain: true }), demandeur);
+
+    const uploadResult = await CloudinaryService.uploadPdfBuffer(
+      buffer,
+      'hotel-beatrice/depenses',
+      `bon-sortie-${id}`
+    );
+    if (!uploadResult.success) {
+      return res.status(500).json({
+        error: 'Upload failed',
+        message: 'Impossible d\'enregistrer le PDF (Cloudinary): ' + (uploadResult.error || 'Erreur inconnue')
+      });
+    }
+    const pdfUrl = uploadResult.secure_url || uploadResult.url;
+
+    const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
+    if (circuitRef) {
+      await CircuitDepense.creerEtape7(circuitRef, parseInt(id), req.user.id, pdfUrl);
+    }
+
+    const filename = `bon-sortie-caisse-${id}-${Date.now()}.pdf`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.type('application/pdf').send(buffer);
+  } catch (error) {
+    console.error('Generer bon sortie caisse error:', error);
+    res.status(500).json({
+      error: 'Failed to generate voucher',
+      message: error.message || 'Erreur lors de la génération du bon de sortie de caisse'
     });
   }
 });

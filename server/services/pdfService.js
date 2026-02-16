@@ -422,6 +422,71 @@ class PDFService {
   }
 
   /**
+   * Génère un bon de sortie de caisse (PDF) pour une dépense payée.
+   * @param {Object} depense - Depense (titre, montant, devise, date_paiement, etc.)
+   * @param {Object} demandeur - User (nom, prenom)
+   * @returns {Promise<{buffer: Buffer}>}
+   */
+  async generateBonSortieCaisse(depense, demandeur = {}) {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ size: 'A4', margin: 50 });
+        const chunks = [];
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve({ buffer: Buffer.concat(chunks) }));
+        doc.on('error', reject);
+
+        const devise = depense.devise || 'FC';
+        const montant = parseFloat(depense.montant || 0);
+        const datePaiement = depense.date_paiement || depense.date_depense || new Date();
+        const beneficiaire = demandeur ? `${(demandeur.prenom || '').trim()} ${(demandeur.nom || '').trim()}`.trim() : '—';
+        const motif = depense.titre || depense.description || 'Dépense';
+
+        doc.fontSize(18).font('Helvetica-Bold').text('BON DE SORTIE DE CAISSE', { align: 'center' }).moveDown(1);
+        doc.fontSize(10).font('Helvetica');
+        doc.text(`Date : ${this.formatDate(datePaiement)}`, { align: 'right' }).moveDown(0.5);
+        doc.text(`Réf. dépense : #${depense.id}`, { align: 'right' }).moveDown(1.5);
+        doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke().moveDown(1);
+        doc.font('Helvetica-Bold').text('Bénéficiaire :', 50, doc.y);
+        doc.font('Helvetica').text(beneficiaire, 50, doc.y + 14).moveDown(1);
+        doc.font('Helvetica-Bold').text('Motif / Objet :', 50, doc.y);
+        doc.font('Helvetica').text(motif.substring(0, 200), 50, doc.y + 14, { width: 495 }).moveDown(1);
+        doc.font('Helvetica-Bold').text('Montant :', 50, doc.y);
+        doc.font('Helvetica').text(`${montant.toFixed(2)} ${devise}`, 50, doc.y + 14).moveDown(0.5);
+        doc.font('Helvetica-Oblique').fontSize(9).text(`(${this.montantEnLettres(montant)} ${devise})`, 50, doc.y).moveDown(2);
+        doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke().moveDown(1);
+        doc.fontSize(9).font('Helvetica').fillColor('#666').text('Document généré le ' + new Date().toLocaleString('fr-FR'), 50, 800);
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  montantEnLettres(n) {
+    if (n === 0) return 'zéro';
+    const unites = ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf'];
+    const dizaines = ['', 'dix', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante', 'soixante-dix', 'quatre-vingt', 'quatre-vingt-dix'];
+    const centaines = ['', 'cent', 'deux cent', 'trois cent', 'quatre cent', 'cinq cent', 'six cent', 'sept cent', 'huit cent', 'neuf cent'];
+    let partieEntiere = Math.floor(n);
+    const dec = Math.round((n - partieEntiere) * 100);
+    if (partieEntiere >= 1000) return `${partieEntiere} (en chiffres)`;
+    let s = '';
+    if (partieEntiere >= 100) {
+      s += centaines[Math.floor(partieEntiere / 100)] + ' ';
+      partieEntiere %= 100;
+    }
+    if (partieEntiere >= 10) {
+      const d = Math.floor(partieEntiere / 10);
+      const u = partieEntiere % 10;
+      if (d === 1) s += u === 0 ? 'dix' : u === 1 ? 'onze' : u === 2 ? 'douze' : u === 3 ? 'treize' : u === 4 ? 'quatorze' : u === 5 ? 'quinze' : 'dix-' + unites[u];
+      else s += (d > 1 ? dizaines[d] : '') + (u === 1 && d >= 2 ? '-et-un' : u ? (d >= 2 ? '-' : '') + unites[u] : '');
+    } else s += unites[partieEntiere];
+    if (dec > 0) s += ` et ${dec}/100`;
+    return s.trim() || 'zéro';
+  }
+
+  /**
    * Génère un PDF de facture (design selon template_code: minimal, modern, classic)
    * @param {Object} facture - FactureFin
    * @param {Array} lignes - LigneFactureFin[]

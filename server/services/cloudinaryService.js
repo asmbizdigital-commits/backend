@@ -226,6 +226,27 @@ class CloudinaryService {
       return { success: false, error: error.message };
     }
   }
+
+  /** Upload d'un PDF (buffer) — pour bons de sortie de caisse, etc. Retourne l'URL sécurisée. */
+  static async uploadPdfBuffer(pdfBuffer, folder = 'hotel-beatrice/depenses', publicIdPrefix = 'bon-sortie') {
+    try {
+      const dataUri = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+      const result = await cloudinary.uploader.upload(dataUri, {
+        folder,
+        resource_type: 'raw',
+        public_id: `${publicIdPrefix}_${Date.now()}`
+      });
+      return {
+        success: true,
+        public_id: result.public_id,
+        secure_url: result.secure_url,
+        url: result.secure_url
+      };
+    } catch (error) {
+      console.error('❌ Erreur upload PDF Cloudinary:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = {

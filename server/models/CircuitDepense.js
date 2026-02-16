@@ -7,7 +7,8 @@ const ETAPES = {
   3: 'Décaissement en attente',
   4: 'Décaissement approuvé par auditeur',
   5: 'Paiement programmé',
-  6: 'Paiement effectué'
+  6: 'Paiement effectué',
+  7: 'Bon de sortie de caisse généré'
 };
 
 const CircuitDepense = sequelize.define('CircuitDepense', {
@@ -24,7 +25,7 @@ const CircuitDepense = sequelize.define('CircuitDepense', {
   etape: {
     type: DataTypes.TINYINT,
     allowNull: false,
-    comment: 'Numéro étape 1 à 6'
+    comment: 'Numéro étape 1 à 7'
   },
   libelle_etape: {
     type: DataTypes.STRING(255),
@@ -150,7 +151,7 @@ CircuitDepense.getCircuitRefByDemandeFondsId = async function (demandeFondsId) {
   return row ? row.circuit_ref : null;
 };
 
-/** Récupérer le circuit_ref à partir de depense_id (étape 3, 4, 5 ou 6) */
+/** Récupérer le circuit_ref à partir de depense_id (étape 3, 4, 5, 6 ou 7) */
 CircuitDepense.getCircuitRefByDepenseId = async function (depenseId) {
   const row = await this.findOne({
     where: { depense_id: depenseId },
@@ -158,6 +159,19 @@ CircuitDepense.getCircuitRefByDepenseId = async function (depenseId) {
     attributes: ['circuit_ref']
   });
   return row ? row.circuit_ref : null;
+};
+
+/** Créer l'étape 7 : bon de sortie de caisse généré (commentaire = URL du PDF) */
+CircuitDepense.creerEtape7 = async function (circuitRef, depenseId, createdBy, pdfUrl) {
+  return this.create({
+    circuit_ref: circuitRef,
+    etape: 7,
+    libelle_etape: ETAPES[7],
+    depense_id: depenseId,
+    date_etape: new Date(),
+    created_by: createdBy || null,
+    commentaire: pdfUrl || null
+  });
 };
 
 module.exports = CircuitDepense;

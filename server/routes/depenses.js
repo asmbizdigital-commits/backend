@@ -577,7 +577,14 @@ router.post('/:id/generer-bon-sortie-caisse', [
     }
 
     const demandeur = depense.demandeur ? depense.demandeur.get({ plain: true }) : {};
-    const { buffer } = await pdfService.generateBonSortieCaisse(depense.get({ plain: true }), demandeur);
+    const result = await pdfService.generateBonSortieCaisse(depense.get({ plain: true }), demandeur);
+    const buffer = result && result.buffer;
+    if (!buffer || !Buffer.isBuffer(buffer)) {
+      return res.status(500).json({
+        error: 'PDF generation failed',
+        message: 'La génération du PDF a échoué (buffer invalide)'
+      });
+    }
 
     const uploadResult = await CloudinaryService.uploadPdfBuffer(
       buffer,

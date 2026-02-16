@@ -391,12 +391,14 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Default error response
-  res.status(err.status || 500).json({ 
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Erreur interne du serveur',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+  // Default error response (never send null/undefined body)
+  const status = err.status || 500;
+  const body = {
+    error: err.error || 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? (err.message || 'Erreur interne du serveur') : 'Erreur interne du serveur'
+  };
+  if (process.env.NODE_ENV === 'development' && err.stack) body.stack = err.stack;
+  res.status(status).json(body);
 });
 
 // 404 handler

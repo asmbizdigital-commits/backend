@@ -6,7 +6,7 @@ const ETAPES = {
   2: 'Demande de fonds créée',
   3: 'Décaissement en attente',
   4: 'Décaissement approuvé par auditeur',
-  5: 'Paiement programmé',
+  5: 'Paiement programmé (Superviseur Finances)',
   6: 'Paiement effectué',
   7: 'Bon de sortie de caisse généré'
 };

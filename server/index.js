@@ -555,6 +555,28 @@ async function startServer() {
       console.warn('⚠️ tbl_soumissions_besoins:', err.message);
     }
 
+    // Ajouter colonnes pièces justificatives si absentes (évite 500 GET /api/soumissions-besoins)
+    const piecesCols = [
+      ['piece_justificative_1_url', 'VARCHAR(512) NULL'],
+      ['piece_justificative_1_nom', 'VARCHAR(255) NULL'],
+      ['piece_justificative_2_url', 'VARCHAR(512) NULL'],
+      ['piece_justificative_2_nom', 'VARCHAR(255) NULL'],
+      ['piece_justificative_3_url', 'VARCHAR(512) NULL'],
+      ['piece_justificative_3_nom', 'VARCHAR(255) NULL']
+    ];
+    for (const [colName, colDef] of piecesCols) {
+      try {
+        await sequelize.query(`ALTER TABLE tbl_soumissions_besoins ADD COLUMN \`${colName}\` ${colDef}`, { raw: true });
+        console.log('✅ Colonne', colName, 'ajoutée.');
+      } catch (err) {
+        if (err.message && (err.message.includes('Duplicate column') || err.message.includes('already exists'))) {
+          // déjà existant, ignorer
+        } else {
+          console.warn('⚠️ tbl_soumissions_besoins.', colName, ':', err.message);
+        }
+      }
+    }
+
     // Démarrer le service de monitoring des stocks
     const stockMonitoringService = require('./services/stockMonitoringService');
     const monitoringInterval = parseInt(process.env.STOCK_MONITORING_INTERVAL || '60000', 10); // 1 minute par défaut

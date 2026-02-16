@@ -451,6 +451,22 @@ router.put('/:id/status', authenticateToken, requireRole(['Superviseur', 'Superv
           const circuitRef = await CircuitDepense.getCircuitRefByDemandeFondsId(demande.id);
           if (circuitRef) {
             await CircuitDepense.creerEtape3(circuitRef, depense.id, req.user.id);
+            // Notification étape 3 : Décaissement en attente
+            try {
+              const { notifyCircuitStep } = require('../services/circuitDepensesNotificationService');
+              const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'L\'auditeur';
+              await notifyCircuitStep({
+                title: 'Circuit dépenses – Décaissement en attente',
+                message: `${acteurNom} a approuvé la demande de fonds #${demande.id}. La dépense #${depense.id} a été créée et est en attente d’approbation.`,
+                link: '/expenses',
+                demandeur_id: demande.demandeur_id,
+                superviseur_id: demande.superviseur_id,
+                created_by: req.user.id,
+                app: req.app
+              });
+            } catch (notifErr) {
+              console.error('Notification circuit étape 3:', notifErr);
+            }
           }
         } catch (circuitErr) {
           console.error('Circuit dépenses étape 3:', circuitErr);

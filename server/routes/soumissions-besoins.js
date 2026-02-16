@@ -449,6 +449,22 @@ router.put('/:id/status', [
         } catch (err) {
           console.error('Circuit dépenses étape 2:', err);
         }
+        // Notification étape 2 : Demande de fonds créée (demandeur, superviseur, Auditeur, Superviseur Finance, Patron)
+        try {
+          const { notifyCircuitStep } = require('../services/circuitDepensesNotificationService');
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le superviseur';
+          await notifyCircuitStep({
+            title: 'Circuit dépenses – Demande de fonds créée',
+            message: `${acteurNom} a validé la soumission SB-${s.id}. Une demande de fonds #${demande.id} a été créée.`,
+            link: '/demandes-fonds',
+            demandeur_id: s.demandeur_id,
+            superviseur_id: s.superviseur_id,
+            created_by: req.user.id,
+            app: req.app
+          });
+        } catch (notifErr) {
+          console.error('Notification circuit étape 2:', notifErr);
+        }
       }
     }
 

@@ -403,6 +403,22 @@ router.post('/:id/approve', [
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
       if (circuitRef) {
         await CircuitDepense.creerEtape4(circuitRef, parseInt(id), req.user.id);
+        try {
+          const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
+          const ctx = await getCircuitContextFromRef(circuitRef);
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'L\'auditeur';
+          await notifyCircuitStep({
+            title: 'Circuit dépenses – Décaissement approuvé par auditeur',
+            message: `${acteurNom} a approuvé la dépense #${id}. Le décaissement est approuvé.`,
+            link: '/circuits-depenses',
+            demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
+            superviseur_id: ctx?.superviseur_id,
+            created_by: req.user.id,
+            app: req.app
+          });
+        } catch (notifErr) {
+          console.error('Notification circuit étape 4:', notifErr);
+        }
       }
     } catch (circuitErr) {
       console.error('Circuit dépenses étape 4:', circuitErr);
@@ -495,6 +511,22 @@ router.patch('/:id/programmer-paiement', [
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
       if (circuitRef) {
         await CircuitDepense.creerEtape5(circuitRef, parseInt(id), req.user.id);
+        try {
+          const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
+          const ctx = await getCircuitContextFromRef(circuitRef);
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le Superviseur Finances';
+          await notifyCircuitStep({
+            title: 'Circuit dépenses – Paiement programmé',
+            message: `${acteurNom} a programmé le paiement de la dépense #${id} (circuit ${circuitRef}).`,
+            link: '/circuits-depenses',
+            demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
+            superviseur_id: ctx?.superviseur_id,
+            created_by: req.user.id,
+            app: req.app
+          });
+        } catch (notifErr) {
+          console.error('Notification circuit étape 5:', notifErr);
+        }
       }
     } catch (circuitErr) {
       console.error('Circuit dépenses étape 5:', circuitErr);
@@ -566,6 +598,22 @@ router.post('/:id/pay', [
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
       if (circuitRef) {
         await CircuitDepense.creerEtape6(circuitRef, parseInt(id), req.user.id);
+        try {
+          const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
+          const ctx = await getCircuitContextFromRef(circuitRef);
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le Patron';
+          await notifyCircuitStep({
+            title: 'Circuit dépenses – Paiement effectué',
+            message: `${acteurNom} a marqué la dépense #${id} comme payée (circuit ${circuitRef}).`,
+            link: '/circuits-depenses',
+            demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
+            superviseur_id: ctx?.superviseur_id,
+            created_by: req.user.id,
+            app: req.app
+          });
+        } catch (notifErr) {
+          console.error('Notification circuit étape 6:', notifErr);
+        }
       }
     } catch (circuitErr) {
       console.error('Circuit dépenses étape 6:', circuitErr);
@@ -642,6 +690,22 @@ router.post('/:id/generer-bon-sortie-caisse', [
     const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
     if (circuitRef) {
       await CircuitDepense.creerEtape7(circuitRef, parseInt(id), req.user.id, pdfUrl);
+      try {
+        const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
+        const ctx = await getCircuitContextFromRef(circuitRef);
+        const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Un utilisateur';
+        await notifyCircuitStep({
+          title: 'Circuit dépenses – Bon de sortie de caisse généré',
+          message: `${acteurNom} a généré le bon de sortie de caisse pour la dépense #${id} (circuit ${circuitRef}).`,
+          link: '/circuits-depenses',
+          demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
+          superviseur_id: ctx?.superviseur_id,
+          created_by: req.user.id,
+          app: req.app
+        });
+      } catch (notifErr) {
+        console.error('Notification circuit étape 7:', notifErr);
+      }
     }
 
     const filename = `bon-sortie-caisse-${id}-${Date.now()}.pdf`;
@@ -705,6 +769,22 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(depense_id));
       if (circuitRef) {
         await CircuitDepense.creerEtape6(circuitRef, parseInt(depense_id), req.user.id);
+        try {
+          const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
+          const ctx = await getCircuitContextFromRef(circuitRef);
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le Patron';
+          await notifyCircuitStep({
+            title: 'Circuit dépenses – Paiement effectué',
+            message: `${acteurNom} a marqué la dépense #${depense_id} comme payée (circuit ${circuitRef}).`,
+            link: '/circuits-depenses',
+            demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
+            superviseur_id: ctx?.superviseur_id,
+            created_by: req.user.id,
+            app: req.app
+          });
+        } catch (notifErr) {
+          console.error('Notification circuit étape 6:', notifErr);
+        }
       }
     } catch (circuitErr) {
       console.error('Circuit dépenses étape 6:', circuitErr);

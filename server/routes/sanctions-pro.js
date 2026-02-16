@@ -1,10 +1,25 @@
 const express = require('express');
+const path = require('path');
+const multer = require('multer');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const SanctionPro = require('../models/SanctionPro');
 const { User, Employe } = require('../models');
+const { CloudinaryService } = require('../services/cloudinaryService');
+
+const uploadPieces = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp|pdf/i;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ok = file.mimetype && (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') && allowed.test(ext.replace('.', ''));
+    if (ok) cb(null, true);
+    else cb(new Error('Fichier non autorisé (images jpg, png, gif, webp ou PDF)'));
+  }
+});
 
 // GET /api/sanctions-pro - Récupérer toutes les demandes de sanctions
 router.get('/', authenticateToken, async (req, res) => {
@@ -216,10 +231,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/sanctions-pro - Créer une nouvelle demande de sanction (Superviseur uniquement)
-router.post('/', 
+// POST /api/sanctions-pro - Créer une nouvelle demande de sanction (Superviseur uniquement) + 3 pièces justificatives optionnelles
+router.post('/',
   authenticateToken,
   requireRole(['Superviseur', 'Patron', 'Administrateur']),
+  uploadPieces.fields([
+    { name: 'piece_1', maxCount: 1 },
+    { name: 'piece_2', maxCount: 1 },
+    { name: 'piece_3', maxCount: 1 }
+  ]),
   [
     body('employe_id').isInt({ min: 1 }).withMessage('L\'ID de l\'employé est requis'),
     body('type_sanction').isIn(['avertissement_verbal', 'avertissement_ecrit', 'blame', 'mise_a_pied', 'retrogradation', 'licenciement_faute_grave']).withMessage('Type de sanction invalide'),
@@ -242,34 +262,61 @@ router.post('/',
         });
       }
 
-      // Aucune vérification "date dans le futur" pour date_incident — toute date est acceptée.
-
-      // Vérifier que l'employé existe
-      const employe = await Employe.findByPk(req.body.employe_id);
+      const employeId = parseInt(req.body.employe_id, 10);
+      const employe = await Employe.findByPk(employeId);
       if (!employe) {
         return res.status(404).json({
           success: false,
           message: 'Employé non trouvé'
         });
       }
-      
+
       const sanctionData = {
-        ...req.body,
+        employe_id: employeId,
+        type_sanction: req.body.type_sanction,
+        motif: req.body.motif.trim(),
+        description: req.body.description ? req.body.description.trim() : null,
+        date_incident: req.body.date_incident,
+        duree_suspension: req.body.duree_suspension ? parseInt(req.body.duree_suspension, 10) : null,
+        date_debut_suspension: req.body.date_debut_suspension || null,
+        date_fin_suspension: null,
+        montant_amende: req.body.montant_amende != null && req.body.montant_amende !== '' ? parseFloat(req.body.montant_amende) : null,
         demandeur_id: req.user.id,
         statut: 'en_attente'
       };
-      
-      // Calculer la date de fin de suspension si nécessaire
+
       if (sanctionData.type_sanction === 'mise_a_pied' && sanctionData.duree_suspension && sanctionData.date_debut_suspension) {
         const dateDebut = new Date(sanctionData.date_debut_suspension);
         const dateFin = new Date(dateDebut);
         dateFin.setDate(dateFin.getDate() + sanctionData.duree_suspension);
         sanctionData.date_fin_suspension = dateFin.toISOString().split('T')[0];
       }
-      
+
       const nouvelleSanction = await SanctionPro.create(sanctionData);
-      
-      // Charger les relations pour la réponse
+
+      // Pièces justificatives : upload Cloudinary (3 max)
+      const documents = {};
+      const folder = `sanctions-pro/${nouvelleSanction.id}`;
+      for (let i = 1; i <= 3; i++) {
+        const key = `piece_${i}`;
+        const file = req.files && req.files[key] && req.files[key][0];
+        if (!file) continue;
+        try {
+          const result = await CloudinaryService.uploadBuffer(file.buffer, folder, {
+            mimetype: file.mimetype,
+            public_id: `piece_${i}_${Date.now()}`
+          });
+          if (result.success) {
+            documents[key] = { url: result.secure_url, nom: file.originalname || file.name || `piece_${i}` };
+          }
+        } catch (err) {
+          console.error(`Upload pièce ${i} sanction ${nouvelleSanction.id}:`, err);
+        }
+      }
+      if (Object.keys(documents).length > 0) {
+        await nouvelleSanction.update({ documents });
+      }
+
       const sanctionComplete = await SanctionPro.findByPk(nouvelleSanction.id, {
         include: [
           {
@@ -318,9 +365,14 @@ router.post('/',
   }
 );
 
-// PUT /api/sanctions-pro/:id - Mettre à jour une demande de sanction (seulement si en_attente)
+// PUT /api/sanctions-pro/:id - Mettre à jour une demande de sanction (seulement si en_attente) + pièces optionnelles
 router.put('/:id',
   authenticateToken,
+  uploadPieces.fields([
+    { name: 'piece_1', maxCount: 1 },
+    { name: 'piece_2', maxCount: 1 },
+    { name: 'piece_3', maxCount: 1 }
+  ]),
   [
     body('type_sanction').optional().isIn(['avertissement_verbal', 'avertissement_ecrit', 'blame', 'mise_a_pied', 'retrogradation', 'licenciement_faute_grave']).withMessage('Type de sanction invalide'),
     body('motif').optional().trim().isLength({ min: 10, max: 2000 }).withMessage('Le motif doit contenir entre 10 et 2000 caractères'),
@@ -337,25 +389,23 @@ router.put('/:id',
           errors: errors.array()
         });
       }
-      
+
       const sanction = await SanctionPro.findByPk(req.params.id);
-      
+
       if (!sanction) {
         return res.status(404).json({
           success: false,
           message: 'Demande de sanction non trouvée'
         });
       }
-      
-      // Vérifier que la demande est en attente
+
       if (sanction.statut !== 'en_attente') {
         return res.status(400).json({
           success: false,
           message: 'Seules les demandes en attente peuvent être modifiées'
         });
       }
-      
-      // Vérifier que l'utilisateur est le demandeur ou a les permissions
+
       const canModify = ['Patron', 'Administrateur'].includes(req.user.role) || sanction.demandeur_id === req.user.id;
       if (!canModify) {
         return res.status(403).json({
@@ -363,16 +413,39 @@ router.put('/:id',
           message: 'Vous n\'avez pas la permission de modifier cette demande'
         });
       }
-      
-      // Calculer la date de fin de suspension si nécessaire
-      if (req.body.type_sanction === 'mise_a_pied' && req.body.duree_suspension && req.body.date_debut_suspension) {
-        const dateDebut = new Date(req.body.date_debut_suspension);
-        const dateFin = new Date(dateDebut);
-        dateFin.setDate(dateFin.getDate() + req.body.duree_suspension);
-        req.body.date_fin_suspension = dateFin.toISOString().split('T')[0];
+
+      // Pièces justificatives : upload Cloudinary (merge avec existant)
+      const existingDocs = (sanction.documents && typeof sanction.documents === 'object') ? { ...sanction.documents } : {};
+      const folder = `sanctions-pro/${sanction.id}`;
+      for (let i = 1; i <= 3; i++) {
+        const key = `piece_${i}`;
+        const file = req.files && req.files[key] && req.files[key][0];
+        if (!file) continue;
+        try {
+          const result = await CloudinaryService.uploadBuffer(file.buffer, folder, {
+            mimetype: file.mimetype,
+            public_id: `piece_${i}_${Date.now()}`
+          });
+          if (result.success) {
+            existingDocs[key] = { url: result.secure_url, nom: file.originalname || file.name || `piece_${i}` };
+          }
+        } catch (err) {
+          console.error(`Upload pièce ${i} sanction ${sanction.id}:`, err);
+        }
       }
-      
-      await sanction.update(req.body);
+      const updateData = { ...req.body };
+      if (Object.keys(existingDocs).length > 0) {
+        updateData.documents = existingDocs;
+      }
+
+      if (updateData.type_sanction === 'mise_a_pied' && updateData.duree_suspension && updateData.date_debut_suspension) {
+        const dateDebut = new Date(updateData.date_debut_suspension);
+        const dateFin = new Date(dateDebut);
+        dateFin.setDate(dateFin.getDate() + parseInt(updateData.duree_suspension, 10));
+        updateData.date_fin_suspension = dateFin.toISOString().split('T')[0];
+      }
+
+      await sanction.update(updateData);
       
       const sanctionMiseAJour = await SanctionPro.findByPk(sanction.id, {
         include: [

@@ -9,6 +9,7 @@ const { Op } = require('sequelize');
 const { CloudinaryService } = require('../services/cloudinaryService');
 
 const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
+const ROLES_CIRCUIT_FULL = ['Patron', 'Administrateur', 'Superviseur Finance', 'Auditeur'];
 
 const uploadPieces = multer({
   storage: multer.memoryStorage(),
@@ -117,7 +118,10 @@ router.get('/:id', async (req, res) => {
     });
     if (!s) return res.status(404).json({ success: false, message: 'Soumission non trouvée' });
     const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
-    if (s.demandeur_id !== req.user.id && (!isSuperviseur || s.superviseur_id !== req.user.id)) {
+    const canAccessCircuit = ROLES_CIRCUIT_FULL.includes(req.user.role);
+    const isDemandeur = s.demandeur_id === req.user.id;
+    const isSuperviseurCible = isSuperviseur && s.superviseur_id === req.user.id;
+    if (!isDemandeur && !isSuperviseurCible && !canAccessCircuit) {
       return res.status(403).json({ success: false, message: 'Accès non autorisé' });
     }
     res.json({ success: true, data: s });

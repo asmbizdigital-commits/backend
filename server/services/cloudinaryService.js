@@ -201,6 +201,31 @@ class CloudinaryService {
       };
     }
   }
+
+  /** Upload d'un buffer (image) avec type MIME explicite — pour pièces justificatives, etc. */
+  static async uploadBuffer(buffer, folder, options = {}) {
+    try {
+      const mimetype = options.mimetype || 'image/jpeg';
+      const dataUri = `data:${mimetype};base64,${buffer.toString('base64')}`;
+      const uploadOptions = {
+        folder: folder,
+        resource_type: 'image',
+        quality: 'auto',
+        ...options
+      };
+      delete uploadOptions.mimetype;
+      const result = await cloudinary.uploader.upload(dataUri, uploadOptions);
+      return {
+        success: true,
+        public_id: result.public_id,
+        secure_url: result.secure_url,
+        url: result.url
+      };
+    } catch (error) {
+      console.error('❌ Erreur upload buffer Cloudinary:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 module.exports = {

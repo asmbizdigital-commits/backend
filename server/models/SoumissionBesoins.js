@@ -50,7 +50,13 @@ const SoumissionBesoins = sequelize.define('SoumissionBesoins', {
   date_validation: {
     type: DataTypes.DATE,
     allowNull: true
-  }
+  },
+  piece_justificative_1_url: { type: DataTypes.STRING(512), allowNull: true },
+  piece_justificative_1_nom: { type: DataTypes.STRING(255), allowNull: true },
+  piece_justificative_2_url: { type: DataTypes.STRING(512), allowNull: true },
+  piece_justificative_2_nom: { type: DataTypes.STRING(255), allowNull: true },
+  piece_justificative_3_url: { type: DataTypes.STRING(512), allowNull: true },
+  piece_justificative_3_nom: { type: DataTypes.STRING(255), allowNull: true }
 }, {
   tableName: 'tbl_soumissions_besoins',
   timestamps: true,

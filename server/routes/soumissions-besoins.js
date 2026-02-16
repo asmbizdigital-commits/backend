@@ -1,11 +1,26 @@
 const express = require('express');
+const path = require('path');
+const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
 const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre, DemandeFonds, LigneDemandeFonds, CircuitDepense } = require('../models');
 const Notification = require('../models/Notification');
 const { Op } = require('sequelize');
+const { CloudinaryService } = require('../services/cloudinaryService');
 
 const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
+
+const uploadPieces = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp/i;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ok = file.mimetype && file.mimetype.startsWith('image/') && allowed.test(ext.replace('.', ''));
+    if (ok) cb(null, true);
+    else cb(new Error('Fichier non autorisé (images uniquement : jpg, png, gif, webp)'));
+  }
+});
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -112,17 +127,33 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/soumissions-besoins — Créer
-router.post('/', [
+// POST /api/soumissions-besoins — Créer (JSON ou FormData avec 3 pièces justificatives optionnelles)
+router.post('/', uploadPieces.fields([
+  { name: 'piece_1', maxCount: 1 },
+  { name: 'piece_2', maxCount: 1 },
+  { name: 'piece_3', maxCount: 1 }
+]), [
   body('type').isIn(['materiel', 'fonds']).withMessage('type invalide'),
-  body('superviseur_id').isInt({ min: 1 }).withMessage('superviseur_id requis'),
-  body('lignes').isArray().withMessage('lignes requis'),
-  body('lignes.*').optional().isObject()
+  body('superviseur_id').notEmpty().withMessage('superviseur_id requis'),
+  body('lignes').notEmpty().withMessage('lignes requis')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
-    const { type, motif, commentaire, superviseur_id, lignes, devise = 'FC' } = req.body;
+
+    let lignes = req.body.lignes;
+    if (typeof lignes === 'string') {
+      try { lignes = JSON.parse(lignes); } catch (e) {
+        return res.status(400).json({ success: false, message: 'lignes invalide (JSON)' });
+      }
+    }
+    if (!Array.isArray(lignes)) return res.status(400).json({ success: false, message: 'lignes doit être un tableau' });
+
+    const superviseur_id = parseInt(req.body.superviseur_id, 10);
+    if (!superviseur_id || isNaN(superviseur_id)) {
+      return res.status(400).json({ success: false, message: 'superviseur_id invalide' });
+    }
+    const { type, motif, commentaire, devise = 'FC' } = req.body;
     const superviseur = await User.findByPk(superviseur_id);
     if (!superviseur || !ROLES_SUPERVISEURS.includes(superviseur.role)) {
       return res.status(400).json({ success: false, message: 'Superviseur invalide ou rôle non autorisé' });
@@ -192,6 +223,31 @@ router.post('/', [
         console.error('Circuit dépenses étape 1:', err);
       }
     }
+
+    // Pièces justificatives : upload Cloudinary (3 max)
+    const updatePieces = {};
+    const folder = `soumissions-besoins/${s.id}`;
+    for (let i = 1; i <= 3; i++) {
+      const key = `piece_${i}`;
+      const file = req.files && req.files[key] && req.files[key][0];
+      if (!file) continue;
+      try {
+        const result = await CloudinaryService.uploadBuffer(file.buffer, folder, {
+          mimetype: file.mimetype,
+          public_id: `piece_${i}_${Date.now()}`
+        });
+        if (result.success) {
+          updatePieces[`piece_justificative_${i}_url`] = result.secure_url;
+          updatePieces[`piece_justificative_${i}_nom`] = file.originalname || file.name || `piece_${i}`;
+        }
+      } catch (err) {
+        console.error(`Upload pièce ${i} soumission ${s.id}:`, err);
+      }
+    }
+    if (Object.keys(updatePieces).length > 0) {
+      await s.update(updatePieces);
+    }
+
     const created = await SoumissionBesoins.findByPk(s.id, {
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },

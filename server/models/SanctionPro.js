@@ -78,10 +78,22 @@ const SanctionPro = sequelize.define('SanctionPro', {
     comment: 'Montant de l\'amende en FC (si applicable)'
   },
   statut: {
-    type: DataTypes.ENUM('en_attente', 'approuve', 'rejete', 'annule'),
+    type: DataTypes.ENUM(
+      'en_attente',
+      'approuve',
+      'rejete',
+      'annule',
+      'en_analyse_rh',
+      'classement_sans_suite',
+      'convocation_envoyee',
+      'entretien_realise',
+      'sanction_validee',
+      'sanction_notifiee',
+      'dossier_cloture'
+    ),
     allowNull: false,
     defaultValue: 'en_attente',
-    comment: 'Statut de la demande'
+    comment: 'Statut dans le circuit disciplinaire'
   },
   date_validation: {
     type: DataTypes.DATE,
@@ -92,6 +104,45 @@ const SanctionPro = sequelize.define('SanctionPro', {
     type: DataTypes.TEXT,
     allowNull: true,
     comment: 'Commentaire du Responsable RH'
+  },
+  date_convocation: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: "Date d'envoi de la convocation à entretien"
+  },
+  date_entretien: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: "Date de l'entretien disciplinaire"
+  },
+  date_decision: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Date de la décision de sanction'
+  },
+  date_notification: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Date de notification officielle'
+  },
+  date_cloture: {
+    type: DataTypes.DATEONLY,
+    allowNull: true,
+    comment: 'Date de clôture du dossier'
+  },
+  niveau_gravite: {
+    type: DataTypes.ENUM('leger', 'moyen', 'grave', 'tres_grave'),
+    allowNull: true,
+    comment: 'Niveau de gravité (pour recommandation sanction)'
+  },
+  validation_direction_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'tbl_utilisateurs',
+      key: 'id'
+    },
+    comment: 'ID utilisateur Direction si faute grave'
   },
   demandeur_id: {
     type: DataTypes.INTEGER,

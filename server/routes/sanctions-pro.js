@@ -21,6 +21,19 @@ const uploadPieces = multer({
   }
 });
 
+// Multer pour les pièces des étapes (convocation, PV, notification)
+const uploadEtapePieces = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp|pdf/i;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ok = file.mimetype && (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') && allowed.test(ext.replace('.', ''));
+    if (ok) cb(null, true);
+    else cb(new Error('Fichier non autorisé (images jpg, png, gif, webp ou PDF)'));
+  }
+});
+
 // GET /api/sanctions-pro - Récupérer toutes les demandes de sanctions
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -75,6 +88,11 @@ router.get('/', authenticateToken, async (req, res) => {
         {
           model: User,
           as: 'validateur',
+          attributes: ['id', 'nom', 'prenom']
+        },
+        {
+          model: User,
+          as: 'validationDirection',
           attributes: ['id', 'nom', 'prenom']
         }
       ],
@@ -198,6 +216,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
           model: User,
           as: 'validateur',
           attributes: ['id', 'nom', 'prenom', 'email']
+        },
+        {
+          model: User,
+          as: 'validationDirection',
+          attributes: ['id', 'nom', 'prenom', 'email']
         }
       ]
     });
@@ -230,6 +253,150 @@ router.get('/:id', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// Transitions du circuit : statuts autorisés
+const TRANSITIONS = {
+  en_attente: ['en_analyse_rh', 'classement_sans_suite'],
+  en_analyse_rh: ['convocation_envoyee', 'classement_sans_suite'],
+  convocation_envoyee: ['entretien_realise'],
+  entretien_realise: ['sanction_validee'],
+  sanction_validee: ['sanction_notifiee'],
+  sanction_notifiee: ['dossier_cloture']
+};
+
+// PUT /api/sanctions-pro/:id/etape - Avancer dans le circuit (RH / Patron / Admin)
+router.put('/:id/etape',
+  authenticateToken,
+  requireRole(['Superviseur RH', 'Patron', 'Administrateur']),
+  uploadEtapePieces.fields([
+    { name: 'lettre_convocation', maxCount: 1 },
+    { name: 'proces_verbal', maxCount: 1 },
+    { name: 'lettre_notification', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const sanction = await SanctionPro.findByPk(req.params.id, {
+        include: [
+          { model: Employe, as: 'employe', attributes: ['id', 'nom_famille', 'prenoms', 'matricule'] },
+          { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
+          { model: User, as: 'validateur', attributes: ['id', 'nom', 'prenom'] }
+        ]
+      });
+      if (!sanction) {
+        return res.status(404).json({ success: false, message: 'Demande de sanction non trouvée' });
+      }
+
+      const { etape, decision, date_convocation, date_entretien, date_decision, date_notification, date_cloture, type_sanction, niveau_gravite, validation_direction_id, commentaire_rh } = req.body || {};
+      const allowed = TRANSITIONS[sanction.statut];
+      if (!allowed) {
+        return res.status(400).json({ success: false, message: 'Transition non autorisée depuis l\'état actuel' });
+      }
+
+      const documents = (sanction.documents && typeof sanction.documents === 'object') ? { ...sanction.documents } : {};
+      const folder = `sanctions-pro/${sanction.id}`;
+
+      const uploadDoc = async (key, fileKey) => {
+        const file = req.files && req.files[fileKey] && req.files[fileKey][0];
+        if (!file) return;
+        const result = await CloudinaryService.uploadBuffer(file.buffer, folder, {
+          mimetype: file.mimetype,
+          public_id: `${key}_${Date.now()}`
+        });
+        if (result.success) {
+          documents[key] = { url: result.secure_url, nom: file.originalname || file.name || key };
+        }
+      };
+
+      let newStatut = null;
+      const updateData = {};
+
+      if (etape === 'analyse_rh') {
+        if (!allowed.includes('en_analyse_rh') && !allowed.includes('classement_sans_suite')) {
+          return res.status(400).json({ success: false, message: 'Transition non autorisée' });
+        }
+        if (decision === 'classement_sans_suite') {
+          newStatut = 'classement_sans_suite';
+          updateData.commentaire_rh = commentaire_rh || null;
+          updateData.validateur_id = req.user.id;
+          updateData.date_validation = new Date();
+        } else if (decision === 'ouvrir_enquete' || decision === 'passer_analyse') {
+          newStatut = 'en_analyse_rh';
+          updateData.validateur_id = req.user.id;
+          updateData.date_validation = new Date();
+        } else {
+          return res.status(400).json({ success: false, message: 'decision attendue: ouvrir_enquete, passer_analyse ou classement_sans_suite' });
+        }
+      } else if (etape === 'convocation') {
+        if (!allowed.includes('convocation_envoyee')) {
+          return res.status(400).json({ success: false, message: 'Passer d\'abord par l\'analyse RH' });
+        }
+        await uploadDoc('lettre_convocation', 'lettre_convocation');
+        newStatut = 'convocation_envoyee';
+        updateData.date_convocation = date_convocation || new Date().toISOString().split('T')[0];
+      } else if (etape === 'entretien') {
+        if (!allowed.includes('entretien_realise')) {
+          return res.status(400).json({ success: false, message: 'Convocation requise avant l\'entretien' });
+        }
+        await uploadDoc('proces_verbal', 'proces_verbal');
+        newStatut = 'entretien_realise';
+        updateData.date_entretien = date_entretien || new Date().toISOString().split('T')[0];
+      } else if (etape === 'decision') {
+        if (!allowed.includes('sanction_validee')) {
+          return res.status(400).json({ success: false, message: 'Entretien requis avant la décision' });
+        }
+        newStatut = 'sanction_validee';
+        updateData.date_decision = date_decision || new Date().toISOString().split('T')[0];
+        updateData.niveau_gravite = niveau_gravite || null;
+        updateData.validation_direction_id = validation_direction_id ? parseInt(validation_direction_id, 10) : null;
+        if (type_sanction) {
+          updateData.type_sanction = type_sanction;
+        }
+        updateData.validateur_id = req.user.id;
+        updateData.commentaire_rh = commentaire_rh || null;
+      } else if (etape === 'notification') {
+        if (!allowed.includes('sanction_notifiee')) {
+          return res.status(400).json({ success: false, message: 'Décision requise avant la notification' });
+        }
+        await uploadDoc('lettre_notification', 'lettre_notification');
+        newStatut = 'sanction_notifiee';
+        updateData.date_notification = date_notification || new Date().toISOString().split('T')[0];
+      } else if (etape === 'cloture') {
+        if (!allowed.includes('dossier_cloture')) {
+          return res.status(400).json({ success: false, message: 'Notification requise avant clôture' });
+        }
+        newStatut = 'dossier_cloture';
+        updateData.date_cloture = date_cloture || new Date().toISOString().split('T')[0];
+      } else {
+        return res.status(400).json({ success: false, message: 'etape invalide (analyse_rh, convocation, entretien, decision, notification, cloture)' });
+      }
+
+      if (newStatut) updateData.statut = newStatut;
+      if (Object.keys(documents).length > 0) updateData.documents = documents;
+
+      await sanction.update(updateData);
+      const updated = await SanctionPro.findByPk(sanction.id, {
+        include: [
+          { model: Employe, as: 'employe', attributes: ['id', 'nom_famille', 'prenoms', 'matricule'] },
+          { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
+          { model: User, as: 'validateur', attributes: ['id', 'nom', 'prenom'] },
+          { model: User, as: 'validationDirection', attributes: ['id', 'nom', 'prenom'] }
+        ]
+      });
+
+      res.json({
+        success: true,
+        message: 'Étape enregistrée',
+        data: updated
+      });
+    } catch (error) {
+      console.error('Erreur étape sanction:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Erreur serveur'
+      });
+    }
+  }
+);
 
 // POST /api/sanctions-pro - Créer une nouvelle demande de sanction (Superviseur uniquement) + 3 pièces justificatives optionnelles
 router.post('/',

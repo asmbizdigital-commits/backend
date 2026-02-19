@@ -691,6 +691,9 @@ SanctionPro.belongsTo(User, { foreignKey: 'demandeur_id', as: 'demandeur' });
 User.hasMany(SanctionPro, { foreignKey: 'validateur_id', as: 'SanctionsProValidateur' });
 SanctionPro.belongsTo(User, { foreignKey: 'validateur_id', as: 'validateur' });
 
+User.hasMany(SanctionPro, { foreignKey: 'validation_direction_id', as: 'SanctionsProValidationDirection' });
+SanctionPro.belongsTo(User, { foreignKey: 'validation_direction_id', as: 'validationDirection' });
+
 // Associations demandes de congés et absences
 Employe.hasMany(DemandeConge, { foreignKey: 'employe_id', as: 'DemandesConges' });
 DemandeConge.belongsTo(Employe, { foreignKey: 'employe_id', as: 'employe' });

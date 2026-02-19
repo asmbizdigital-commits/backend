@@ -579,6 +579,42 @@ async function startServer() {
       }
     }
 
+    // Colonnes workflow tbl_sanctions_pro (évite 500 GET /api/sanctions-pro en production)
+    const sanctionsProWorkflowCols = [
+      ['date_convocation', 'DATE NULL COMMENT \'Date d\\\'envoi convocation à entretien\''],
+      ['date_entretien', 'DATE NULL COMMENT \'Date entretien disciplinaire\''],
+      ['date_decision', 'DATE NULL COMMENT \'Date décision sanction\''],
+      ['date_notification', 'DATE NULL COMMENT \'Date notification officielle\''],
+      ['date_cloture', 'DATE NULL COMMENT \'Date clôture dossier\''],
+      ['niveau_gravite', "ENUM('leger','moyen','grave','tres_grave') NULL COMMENT 'Niveau gravité'"],
+      ['validation_direction_id', 'INT(11) NULL COMMENT \'ID utilisateur Direction si faute grave\'']
+    ];
+    for (const [colName, colDef] of sanctionsProWorkflowCols) {
+      try {
+        await sequelize.query(`ALTER TABLE tbl_sanctions_pro ADD COLUMN \`${colName}\` ${colDef}`, { raw: true });
+        console.log('✅ tbl_sanctions_pro.', colName, 'ajouté.');
+      } catch (err) {
+        if (err.message && (err.message.includes('Duplicate column') || err.message.includes('already exists'))) {
+          // déjà migré
+        } else {
+          console.warn('⚠️ tbl_sanctions_pro.', colName, ':', err.message);
+        }
+      }
+    }
+    // Étendre l'ENUM statut si nécessaire (ignorer si déjà à jour)
+    try {
+      await sequelize.query(`
+        ALTER TABLE tbl_sanctions_pro MODIFY COLUMN statut ENUM(
+          'en_attente','approuve','rejete','annule',
+          'en_analyse_rh','classement_sans_suite','convocation_envoyee','entretien_realise',
+          'sanction_validee','sanction_notifiee','dossier_cloture'
+        ) NOT NULL DEFAULT 'en_attente'
+      `, { raw: true });
+      console.log('✅ tbl_sanctions_pro statut ENUM à jour.');
+    } catch (err) {
+      if (err.message && !err.message.includes('Duplicate')) console.warn('⚠️ tbl_sanctions_pro statut:', err.message);
+    }
+
     // Démarrer le service de monitoring des stocks
     const stockMonitoringService = require('./services/stockMonitoringService');
     const monitoringInterval = parseInt(process.env.STOCK_MONITORING_INTERVAL || '60000', 10); // 1 minute par défaut

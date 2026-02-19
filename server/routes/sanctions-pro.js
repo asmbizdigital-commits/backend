@@ -89,11 +89,6 @@ router.get('/', authenticateToken, async (req, res) => {
           model: User,
           as: 'validateur',
           attributes: ['id', 'nom', 'prenom']
-        },
-        {
-          model: User,
-          as: 'validationDirection',
-          attributes: ['id', 'nom', 'prenom']
         }
       ],
       order: [['created_at', 'DESC']],
@@ -215,11 +210,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
         {
           model: User,
           as: 'validateur',
-          attributes: ['id', 'nom', 'prenom', 'email']
-        },
-        {
-          model: User,
-          as: 'validationDirection',
           attributes: ['id', 'nom', 'prenom', 'email']
         }
       ]
@@ -378,8 +368,7 @@ router.put('/:id/etape',
         include: [
           { model: Employe, as: 'employe', attributes: ['id', 'nom_famille', 'prenoms', 'matricule'] },
           { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
-          { model: User, as: 'validateur', attributes: ['id', 'nom', 'prenom'] },
-          { model: User, as: 'validationDirection', attributes: ['id', 'nom', 'prenom'] }
+          { model: User, as: 'validateur', attributes: ['id', 'nom', 'prenom'] }
         ]
       });
 

@@ -592,6 +592,13 @@ router.post('/:id/pay', [
         message: 'Pour ce montant (supérieur à 2000€, 2000$ ou 2 000 000 FC), seul le Patron peut marquer la dépense comme payée.'
       });
     }
+    // Pour les montants <= 2000$, seul le Superviseur Finances ou l'Administrateur peut marquer comme payée (pas le Patron)
+    if (!seuilPatronOnly && req.user.role === 'Patron') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Pour les décaissements de moins de 2000$, seul le Superviseur Finances ou l\'Administrateur peut marquer la dépense comme payée.'
+      });
+    }
 
     // Flux : d'abord marquer comme payée (sans programmation), ensuite le Superviseur Finances programme (caisse + date) uniquement pour décaissements > 2000$
     const datePaiement = depense.date_paiement_prevue ? new Date(depense.date_paiement_prevue) : new Date();

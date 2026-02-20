@@ -508,7 +508,7 @@ router.post('/:id/recalculer-solde', requireRole(['Superviseur', 'Superviseur Fi
 });
 
 // GET /api/caisses/:id/transactions - Récupérer les transactions d'une caisse avec pagination
-router.get('/:id/transactions', requireRole(['Superviseur', 'Superviseur Finance', 'Administrateur', 'Patron']), async (req, res) => {
+router.get('/:id/transactions', requireRole(['Superviseur', 'Superviseur Finance', 'Administrateur', 'Patron', 'Guichetier']), async (req, res) => {
   try {
     console.log('🔍 Récupération des transactions pour la caisse:', req.params.id);
     

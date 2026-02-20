@@ -76,6 +76,7 @@ const tauxJourRoutes = require('./routes/taux-jour');
 const parametresSysRoutes = require('./routes/parametres-sys');
 const soumissionsBesoinsRoutes = require('./routes/soumissions-besoins');
 const circuitsDepensesRoutes = require('./routes/circuits-depenses');
+const guichetierSessionRoutes = require('./routes/guichetier-session');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -299,6 +300,7 @@ app.use('/api/taux-jour', tauxJourRoutes);
 app.use('/api/parametres-sys', parametresSysRoutes);
 app.use('/api/soumissions-besoins', soumissionsBesoinsRoutes);
 app.use('/api/circuits-depenses', circuitsDepensesRoutes);
+app.use('/api/guichetier', guichetierSessionRoutes);
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));
@@ -510,6 +512,25 @@ async function startServer() {
       console.log('✅ Table tbl_parametres_sys prête.');
     } catch (err) {
       console.warn('⚠️ tbl_parametres_sys:', err.message);
+    }
+
+    // Table clôture guichetier (une entrée par utilisateur par jour)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS guichetier_clotures (
+          id INT NOT NULL AUTO_INCREMENT,
+          utilisateur_id INT NOT NULL,
+          date_jour DATE NOT NULL,
+          type ENUM('journee','shift') NOT NULL DEFAULT 'journee',
+          closed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_guichetier_cloture_user_date (utilisateur_id, date_jour),
+          KEY idx_guichetier_cloture_date (date_jour)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Table guichetier_clotures prête.');
+    } catch (err) {
+      console.warn('⚠️ guichetier_clotures:', err.message);
     }
 
     // Créer tbl_soumissions_besoins et tbl_soumissions_besoins_lignes si absentes

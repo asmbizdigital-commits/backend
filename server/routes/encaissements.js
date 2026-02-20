@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sequelize } = require('../config/database');
+const { isGuichetierCloture } = require('./guichetier-session');
 
 const router = express.Router();
 
@@ -69,6 +70,15 @@ router.post('/', requireRole(['Administrateur', 'Superviseur Comptable', 'Caissi
   body('caisse_id').isInt({ min: 1 }).withMessage('La caisse est requise')
 ], async (req, res) => {
   try {
+    if (req.user.role === 'Guichetier') {
+      const closed = await isGuichetierCloture(req.user.id);
+      if (closed) {
+        return res.status(403).json({
+          success: false,
+          message: 'Journée (ou shift) clôturée. Aucune opération possible.'
+        });
+      }
+    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -153,6 +163,15 @@ router.put('/:id', requireRole(['Administrateur', 'Superviseur Comptable', 'Cais
   body('date_paiement').isISO8601().withMessage('La date de paiement est requise')
 ], async (req, res) => {
   try {
+    if (req.user.role === 'Guichetier') {
+      const closed = await isGuichetierCloture(req.user.id);
+      if (closed) {
+        return res.status(403).json({
+          success: false,
+          message: 'Journée (ou shift) clôturée. Aucune opération possible.'
+        });
+      }
+    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -258,6 +277,15 @@ router.put('/:id', requireRole(['Administrateur', 'Superviseur Comptable', 'Cais
 // DELETE /api/encaissements/:id - Supprimer un encaissement
 router.delete('/:id', requireRole(['Administrateur', 'Superviseur Comptable', 'Caissier', 'Guichetier']), async (req, res) => {
   try {
+    if (req.user.role === 'Guichetier') {
+      const closed = await isGuichetierCloture(req.user.id);
+      if (closed) {
+        return res.status(403).json({
+          success: false,
+          message: 'Journée (ou shift) clôturée. Aucune opération possible.'
+        });
+      }
+    }
     console.log('🔍 Suppression de l\'encaissement:', req.params.id);
     
     // Vérifier que l'encaissement existe

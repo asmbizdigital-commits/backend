@@ -25,7 +25,8 @@
     "docker:run": "docker run -p 5002:5002 beatrice-backend",
     "docker:compose": "docker-compose up -d",
     "migrate": "node scripts/migrate-all.js",
-    "migrate:dispatch": "node scripts/migrate-dispatch-housekeeping.js"
+    "migrate:dispatch": "node scripts/migrate-dispatch-housekeeping.js",
+    "migrate:liaisons-caissiers": "node scripts/migrate-liaisons-caissiers.js"
   },
   "keywords": [
     "hotel",

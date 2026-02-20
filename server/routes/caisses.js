@@ -134,11 +134,36 @@ router.get('/', async (req, res) => {
       })
     );
 
+    // Récupérer les guichetiers liés (tbl_liaisons_caissiers)
+    const caisseIds = caissesAvecSolde.map((c) => c.id);
+    let caissiersByCaisseId = {};
+    if (caisseIds.length > 0) {
+      try {
+        const liaisons = await sequelize.query(
+          `SELECT l.caisse_id, u.id, u.nom, u.prenom, u.email
+           FROM ${TABLE_LIAISONS} l
+           INNER JOIN tbl_utilisateurs u ON u.id = l.utilisateur_id
+           WHERE l.caisse_id IN (${caisseIds.join(',')})`,
+          { type: QueryTypes.SELECT }
+        );
+        (liaisons || []).forEach((r) => {
+          caissiersByCaisseId[r.caisse_id] = { id: r.id, nom: r.nom, prenom: r.prenom, email: r.email };
+        });
+      } catch (e) {
+        // Table ou jointure absente
+      }
+    }
+
+    const caissesPourReponse = caissesAvecSolde.map((c) => {
+      const plain = c.get ? c.get({ plain: true }) : c;
+      return { ...plain, caissier: caissiersByCaisseId[c.id] || null };
+    });
+
     const totalPages = Math.ceil(count / limit);
 
     res.json({
       success: true,
-      caisses: caissesAvecSolde,
+      caisses: caissesPourReponse,
       pagination: {
         currentPage: parseInt(page),
         totalPages,

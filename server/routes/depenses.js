@@ -476,9 +476,9 @@ router.post('/:id/reject', [
   }
 });
 
-// PATCH /api/depenses/:id/programmer-paiement - Programmation par Superviseur Finances (étape 5 circuit)
+// PATCH /api/depenses/:id/programmer-paiement - Programmation (caisse + date) par Superviseur Finances APRÈS paiement, uniquement pour décaissements > 2000$
 router.patch('/:id/programmer-paiement', [
-  requireRole(['Administrateur', 'Patron', 'Superviseur Finance']),
+  requireRole(['Administrateur', 'Superviseur Finance']),
   body('caisse_id').isInt().withMessage('La caisse est requise'),
   body('date_paiement_prevue').optional({ values: 'null' }).isISO8601().withMessage('Date invalide'),
   body('mode_paiement').optional().isString().trim(),
@@ -494,10 +494,22 @@ router.patch('/:id/programmer-paiement', [
     if (!depense) {
       return res.status(404).json({ error: 'Dépense non trouvée' });
     }
-    if (depense.statut !== 'Approuvée') {
+    if (depense.statut !== 'Payée') {
       return res.status(400).json({
-        error: 'Seule une dépense approuvée peut être programmée',
-        message: 'Dépense non approuvée'
+        error: 'Seule une dépense déjà marquée comme payée peut être programmée (caisse et date prévue)',
+        message: 'La programmation se fait après le marquage comme payée, pour les décaissements au-delà de 2000$.'
+      });
+    }
+    const montant = parseFloat(depense.montant) || 0;
+    const devise = (depense.devise || 'FC').toUpperCase();
+    const excedeSeuil =
+      (devise === 'USD' && montant > 2000) ||
+      (devise === 'EUR' && montant > 2000) ||
+      ((devise === 'FC' || devise === 'CDF') && montant > 2000000);
+    if (!excedeSeuil) {
+      return res.status(400).json({
+        error: 'Programmation réservée aux décaissements au-delà de 2000$, 2000€ ou 2 000 000 FC',
+        message: 'La programmation (caisse et date prévue) ne s\'applique qu\'aux décaissements au-delà du seuil.'
       });
     }
     const { caisse_id, date_paiement_prevue, mode_paiement, notes } = req.body;
@@ -566,26 +578,24 @@ router.post('/:id/pay', [
       });
     }
 
-    if (!depense.date_paiement_prevue || !depense.caisse_id) {
-      return res.status(400).json({
-        error: 'Payment not scheduled',
-        message: 'Le paiement doit d\'abord être programmé par le Superviseur Finances (caisse et date prévue).'
-      });
-    }
-
-    // Pour les montants > 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
     const montant = parseFloat(depense.montant) || 0;
     const devise = (depense.devise || 'FC').toUpperCase();
     const seuilPatronOnly =
       (devise === 'USD' && montant > 2000) ||
       (devise === 'EUR' && montant > 2000) ||
       ((devise === 'FC' || devise === 'CDF') && montant > 2000000);
+
+    // Pour les montants > 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
     if (seuilPatronOnly && req.user.role !== 'Patron') {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'Pour ce montant (supérieur à 2000€, 2000$ ou 2 000 000 FC), seul le Patron peut marquer la dépense comme payée.'
       });
     }
+
+    // Flux : d'abord marquer comme payée (sans programmation), ensuite le Superviseur Finances programme (caisse + date) uniquement pour décaissements > 2000$
+    const datePaiement = depense.date_paiement_prevue ? new Date(depense.date_paiement_prevue) : new Date();
+    const caisseId = depense.caisse_id ?? null;
 
     const PaiementPartiel = require('../models/PaiementPartiel');
     const montantRestant = parseFloat(depense.montant) - parseFloat(depense.montant_paye || 0);
@@ -597,15 +607,15 @@ router.post('/:id/pay', [
       reference_paiement: '',
       notes: depense.notes_paiement || '',
       utilisateur_id: req.user.id,
-      caisse_id: depense.caisse_id,
-      date_paiement: depense.date_paiement_prevue || new Date()
+      caisse_id: caisseId,
+      date_paiement: datePaiement
     });
 
     await depense.update({
       statut: 'Payée',
       statut_paiement: 'Payé',
       montant_paye: depense.montant,
-      date_paiement: depense.date_paiement_prevue || new Date()
+      date_paiement: datePaiement
     });
 
     try {

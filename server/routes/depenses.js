@@ -573,17 +573,17 @@ router.post('/:id/pay', [
       });
     }
 
-    // Pour les montants >= 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
+    // Pour les montants > 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
     const montant = parseFloat(depense.montant) || 0;
     const devise = (depense.devise || 'FC').toUpperCase();
     const seuilPatronOnly =
-      (devise === 'USD' && montant >= 2000) ||
-      (devise === 'EUR' && montant >= 2000) ||
-      ((devise === 'FC' || devise === 'CDF') && montant >= 2000000);
+      (devise === 'USD' && montant > 2000) ||
+      (devise === 'EUR' && montant > 2000) ||
+      ((devise === 'FC' || devise === 'CDF') && montant > 2000000);
     if (seuilPatronOnly && req.user.role !== 'Patron') {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Pour ce montant (2000€, 2000$ ou 2 000 000 FC et plus), seul le Patron peut marquer la dépense comme payée.'
+        message: 'Pour ce montant (supérieur à 2000€, 2000$ ou 2 000 000 FC), seul le Patron peut marquer la dépense comme payée.'
       });
     }
 
@@ -756,17 +756,17 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
       });
     }
 
-    // Pour les montants >= 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
+    // Pour les montants > 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
     const montantPayComplet = parseFloat(depense.montant) || 0;
     const devisePayComplet = (depense.devise || 'FC').toUpperCase();
     const seuilPatronOnlyPayComplet =
-      (devisePayComplet === 'USD' && montantPayComplet >= 2000) ||
-      (devisePayComplet === 'EUR' && montantPayComplet >= 2000) ||
-      ((devisePayComplet === 'FC' || devisePayComplet === 'CDF') && montantPayComplet >= 2000000);
+      (devisePayComplet === 'USD' && montantPayComplet > 2000) ||
+      (devisePayComplet === 'EUR' && montantPayComplet > 2000) ||
+      ((devisePayComplet === 'FC' || devisePayComplet === 'CDF') && montantPayComplet > 2000000);
     if (seuilPatronOnlyPayComplet && req.user.role !== 'Patron') {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Pour ce montant (2000€, 2000$ ou 2 000 000 FC et plus), seul le Patron peut marquer la dépense comme payée.'
+        message: 'Pour ce montant (supérieur à 2000€, 2000$ ou 2 000 000 FC), seul le Patron peut marquer la dépense comme payée.'
       });
     }
 

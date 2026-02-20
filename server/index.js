@@ -533,6 +533,25 @@ async function startServer() {
       console.warn('⚠️ guichetier_clotures:', err.message);
     }
 
+    // Table liaisons caisse – caissier (un caissier par caisse)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_liaisons_caissiers (
+          id INT NOT NULL AUTO_INCREMENT,
+          caisse_id INT NOT NULL,
+          utilisateur_id INT NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_liaison_caisse (caisse_id),
+          KEY idx_liaison_utilisateur (utilisateur_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Table tbl_liaisons_caissiers prête.');
+    } catch (err) {
+      console.warn('⚠️ tbl_liaisons_caissiers:', err.message);
+    }
+
     // Créer tbl_soumissions_besoins et tbl_soumissions_besoins_lignes si absentes
     try {
       await sequelize.query(`

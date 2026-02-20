@@ -4,10 +4,14 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Caisse = require('../models/Caisse');
+const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { Op } = require('sequelize'); // Import Op pour les opérateurs de comparaison
 const { sequelize } = require('../config/database'); // Import sequelize depuis notre configuration
+const { QueryTypes } = require('sequelize');
 const fs = require('fs'); // Import fs pour la suppression des fichiers temporaires
+
+const TABLE_LIAISONS = 'tbl_liaisons_caissiers';
 
 const router = express.Router();
 
@@ -189,6 +193,83 @@ router.get('/:id', async (req, res) => {
       success: false,
       message: 'Erreur lors de la récupération de la caisse'
     });
+  }
+});
+
+// GET /api/caisses/:id/liaison-caissier - Récupérer le caissier lié à une caisse
+router.get('/:id/liaison-caissier', requireRole(['Superviseur', 'Superviseur Finance', 'Administrateur', 'Patron']), async (req, res) => {
+  try {
+    const caisseId = parseInt(req.params.id, 10);
+    const caisse = await Caisse.findByPk(caisseId);
+    if (!caisse) {
+      return res.status(404).json({ success: false, message: 'Caisse non trouvée' });
+    }
+    const rows = await sequelize.query(
+      `SELECT l.id, l.caisse_id, l.utilisateur_id, l.created_at
+       FROM ${TABLE_LIAISONS} l
+       WHERE l.caisse_id = :caisseId LIMIT 1`,
+      { replacements: { caisseId }, type: QueryTypes.SELECT }
+    );
+    const liaison = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    let caissier = null;
+    if (liaison && liaison.utilisateur_id) {
+      const u = await User.findByPk(liaison.utilisateur_id, { attributes: ['id', 'nom', 'prenom', 'email', 'role'] });
+      if (u) caissier = { id: u.id, nom: u.nom, prenom: u.prenom, email: u.email, role: u.role };
+    }
+    return res.json({ success: true, liaison: liaison ? { id: liaison.id, caisse_id: liaison.caisse_id, utilisateur_id: liaison.utilisateur_id, created_at: liaison.created_at, caissier } : null });
+  } catch (err) {
+    console.error('Liaison caissier GET:', err);
+    return res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/caisses/:id/liaison-caissier - Lier ou mettre à jour le caissier d'une caisse
+router.put('/:id/liaison-caissier', requireRole(['Superviseur', 'Superviseur Finance', 'Administrateur', 'Patron']), [
+  body('utilisateur_id').optional().isInt({ min: 1 }).withMessage('utilisateur_id doit être un entier positif')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, message: 'Validation échouée', errors: errors.array() });
+    const caisseId = parseInt(req.params.id, 10);
+    const utilisateurId = req.body.utilisateur_id ? parseInt(req.body.utilisateur_id, 10) : null;
+    const caisse = await Caisse.findByPk(caisseId);
+    if (!caisse) {
+      return res.status(404).json({ success: false, message: 'Caisse non trouvée' });
+    }
+    if (utilisateurId) {
+      const user = await User.findByPk(utilisateurId, { attributes: ['id', 'role'] });
+      if (!user || user.role !== 'Guichetier') {
+        return res.status(400).json({ success: false, message: 'L\'utilisateur doit avoir le rôle Guichetier' });
+      }
+    }
+    const existing = await sequelize.query(
+      `SELECT id FROM ${TABLE_LIAISONS} WHERE caisse_id = :caisseId LIMIT 1`,
+      { replacements: { caisseId }, type: QueryTypes.SELECT }
+    );
+    if (Array.isArray(existing) && existing.length > 0) {
+      if (utilisateurId) {
+        await sequelize.query(
+          `UPDATE ${TABLE_LIAISONS} SET utilisateur_id = :uid, updated_at = CURRENT_TIMESTAMP WHERE caisse_id = :caisseId`,
+          { replacements: { uid: utilisateurId, caisseId }, type: QueryTypes.UPDATE }
+        );
+      } else {
+        await sequelize.query(`DELETE FROM ${TABLE_LIAISONS} WHERE caisse_id = :caisseId`, { replacements: { caisseId }, type: QueryTypes.DELETE });
+      }
+    } else if (utilisateurId) {
+      await sequelize.query(
+        `INSERT INTO ${TABLE_LIAISONS} (caisse_id, utilisateur_id) VALUES (:caisseId, :uid)`,
+        { replacements: { caisseId, uid: utilisateurId }, type: QueryTypes.INSERT }
+      );
+    }
+    const rows = await sequelize.query(
+      `SELECT id, caisse_id, utilisateur_id, created_at FROM ${TABLE_LIAISONS} WHERE caisse_id = :caisseId LIMIT 1`,
+      { replacements: { caisseId }, type: QueryTypes.SELECT }
+    );
+    const liaison = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    return res.json({ success: true, message: utilisateurId ? 'Caissier lié avec succès' : 'Liaison supprimée', liaison });
+  } catch (err) {
+    console.error('Liaison caissier PUT:', err);
+    return res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 

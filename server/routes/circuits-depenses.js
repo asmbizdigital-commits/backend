@@ -8,8 +8,8 @@ const ETAPES = {
   2: 'Demande de fonds créée',
   3: 'Décaissement en attente',
   4: 'Décaissement approuvé par auditeur',
-  5: 'Paiement programmé',
-  6: 'Paiement effectué'
+  5: 'Paiement effectué',
+  6: 'Validation paiement par le Patron'
 };
 
 router.use(authenticateToken);
@@ -174,24 +174,24 @@ router.post('/backfill', requireRole(['Patron', 'Administrateur']), async (req, 
         });
         created++;
       }
-      if (dep.date_paiement_prevue && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 5 } }))) {
+      if (dep.statut === 'Payée' && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 5 } }))) {
         await CircuitDepense.create({
           circuit_ref: circuitRef,
           etape: 5,
           libelle_etape: ETAPES[5],
           depense_id: depId,
-          date_etape: dep.updated_at || dateBase,
+          date_etape: dep.date_paiement || dep.updated_at || dateBase,
           created_by: dep.responsable_paiement_id || dep.approbateur_id
         });
         created++;
       }
-      if (dep.statut === 'Payée' && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 6 } }))) {
+      if (dep.date_paiement_prevue && !(await CircuitDepense.findOne({ where: { depense_id: depId, etape: 6 } }))) {
         await CircuitDepense.create({
           circuit_ref: circuitRef,
           etape: 6,
           libelle_etape: ETAPES[6],
           depense_id: depId,
-          date_etape: dep.date_paiement || dep.updated_at || dateBase,
+          date_etape: dep.updated_at || dateBase,
           created_by: dep.responsable_paiement_id || dep.approbateur_id
         });
         created++;

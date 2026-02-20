@@ -506,18 +506,18 @@ router.patch('/:id/programmer-paiement', [
       date_paiement_prevue: date_paiement_prevue || null,
       notes_paiement: notes != null ? notes : depense.notes_paiement
     });
-    // Circuit dépenses : étape 5 (paiement programmé par Superviseur Finances)
+    // Circuit dépenses : étape 6 (validation paiement par le Patron)
     try {
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
       if (circuitRef) {
-        await CircuitDepense.creerEtape5(circuitRef, parseInt(id), req.user.id);
+        await CircuitDepense.creerEtape6(circuitRef, parseInt(id), req.user.id);
         try {
           const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
           const ctx = await getCircuitContextFromRef(circuitRef);
-          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le Superviseur Finances';
+          const acteurNom = req.user?.nom ? `${(req.user.prenom || '').trim()} ${req.user.nom}`.trim() || req.user.email : 'Le Patron';
           await notifyCircuitStep({
-            title: 'Circuit dépenses – Paiement programmé',
-            message: `${acteurNom} a programmé le paiement de la dépense #${id} (circuit ${circuitRef}).`,
+            title: 'Circuit dépenses – Validation paiement par le Patron',
+            message: `${acteurNom} a validé le paiement de la dépense #${id} (circuit ${circuitRef}).`,
             link: '/circuits-depenses',
             demandeur_id: ctx?.demandeur_id || depense.demandeur_id,
             superviseur_id: ctx?.superviseur_id,
@@ -529,7 +529,7 @@ router.patch('/:id/programmer-paiement', [
         }
       }
     } catch (circuitErr) {
-      console.error('Circuit dépenses étape 5:', circuitErr);
+      console.error('Circuit dépenses étape 6:', circuitErr);
     }
     res.json({
       message: 'Paiement programmé avec succès',
@@ -573,6 +573,20 @@ router.post('/:id/pay', [
       });
     }
 
+    // Pour les montants >= 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
+    const montant = parseFloat(depense.montant) || 0;
+    const devise = (depense.devise || 'FC').toUpperCase();
+    const seuilPatronOnly =
+      (devise === 'USD' && montant >= 2000) ||
+      (devise === 'EUR' && montant >= 2000) ||
+      ((devise === 'FC' || devise === 'CDF') && montant >= 2000000);
+    if (seuilPatronOnly && req.user.role !== 'Patron') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Pour ce montant (2000€, 2000$ ou 2 000 000 FC et plus), seul le Patron peut marquer la dépense comme payée.'
+      });
+    }
+
     const PaiementPartiel = require('../models/PaiementPartiel');
     const montantRestant = parseFloat(depense.montant) - parseFloat(depense.montant_paye || 0);
 
@@ -597,7 +611,7 @@ router.post('/:id/pay', [
     try {
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(id));
       if (circuitRef) {
-        await CircuitDepense.creerEtape6(circuitRef, parseInt(id), req.user.id);
+        await CircuitDepense.creerEtape5(circuitRef, parseInt(id), req.user.id);
         try {
           const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
           const ctx = await getCircuitContextFromRef(circuitRef);
@@ -612,11 +626,11 @@ router.post('/:id/pay', [
             app: req.app
           });
         } catch (notifErr) {
-          console.error('Notification circuit étape 6:', notifErr);
+          console.error('Notification circuit étape 5:', notifErr);
         }
       }
     } catch (circuitErr) {
-      console.error('Circuit dépenses étape 6:', circuitErr);
+      console.error('Circuit dépenses étape 5:', circuitErr);
     }
 
     try {
@@ -742,6 +756,20 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
       });
     }
 
+    // Pour les montants >= 2000€, 2000$ ou 2 000 000 FC, seul le Patron peut marquer comme payé
+    const montantPayComplet = parseFloat(depense.montant) || 0;
+    const devisePayComplet = (depense.devise || 'FC').toUpperCase();
+    const seuilPatronOnlyPayComplet =
+      (devisePayComplet === 'USD' && montantPayComplet >= 2000) ||
+      (devisePayComplet === 'EUR' && montantPayComplet >= 2000) ||
+      ((devisePayComplet === 'FC' || devisePayComplet === 'CDF') && montantPayComplet >= 2000000);
+    if (seuilPatronOnlyPayComplet && req.user.role !== 'Patron') {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Pour ce montant (2000€, 2000$ ou 2 000 000 FC et plus), seul le Patron peut marquer la dépense comme payée.'
+      });
+    }
+
     // Créer le paiement partiel avec tout le montant restant
     const PaiementPartiel = require('../models/PaiementPartiel');
     const montantRestant = parseFloat(depense.montant) - parseFloat(depense.montant_paye || 0);
@@ -764,11 +792,11 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
       montant_paye: depense.montant,
       date_paiement: date_paiement || new Date()
     });
-    // Circuit dépenses : étape 6 (paiement effectué)
+    // Circuit dépenses : étape 5 (paiement effectué)
     try {
       const circuitRef = await CircuitDepense.getCircuitRefByDepenseId(parseInt(depense_id));
       if (circuitRef) {
-        await CircuitDepense.creerEtape6(circuitRef, parseInt(depense_id), req.user.id);
+        await CircuitDepense.creerEtape5(circuitRef, parseInt(depense_id), req.user.id);
         try {
           const { notifyCircuitStep, getCircuitContextFromRef } = require('../services/circuitDepensesNotificationService');
           const ctx = await getCircuitContextFromRef(circuitRef);
@@ -783,11 +811,11 @@ router.post('/payer-complet', requireRole(['Administrateur', 'Patron']), async (
             app: req.app
           });
         } catch (notifErr) {
-          console.error('Notification circuit étape 6:', notifErr);
+          console.error('Notification circuit étape 5:', notifErr);
         }
       }
     } catch (circuitErr) {
-      console.error('Circuit dépenses étape 6:', circuitErr);
+      console.error('Circuit dépenses étape 5:', circuitErr);
     }
 
     // Mettre à jour le solde de la caisse

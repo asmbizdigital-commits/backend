@@ -6,8 +6,8 @@ const ETAPES = {
   2: 'Demande de fonds créée',
   3: 'Décaissement en attente',
   4: 'Décaissement approuvé par auditeur',
-  5: 'Paiement programmé (Superviseur Finances)',
-  6: 'Paiement effectué',
+  5: 'Paiement effectué',
+  6: 'Validation paiement par le Patron',
   7: 'Bon de sortie de caisse généré'
 };
 
@@ -118,7 +118,7 @@ CircuitDepense.creerEtape4 = async function (circuitRef, depenseId, createdBy) {
   });
 };
 
-/** Créer l'étape 5 : paiement programmé */
+/** Créer l'étape 5 : paiement effectué */
 CircuitDepense.creerEtape5 = async function (circuitRef, depenseId, createdBy) {
   return this.create({
     circuit_ref: circuitRef,
@@ -130,7 +130,7 @@ CircuitDepense.creerEtape5 = async function (circuitRef, depenseId, createdBy) {
   });
 };
 
-/** Créer l'étape 6 : paiement effectué */
+/** Créer l'étape 6 : validation paiement par le Patron */
 CircuitDepense.creerEtape6 = async function (circuitRef, depenseId, createdBy) {
   return this.create({
     circuit_ref: circuitRef,

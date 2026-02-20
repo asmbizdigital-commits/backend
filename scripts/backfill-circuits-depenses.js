@@ -21,8 +21,8 @@ const ETAPES = {
   2: 'Demande de fonds créée',
   3: 'Décaissement en attente',
   4: 'Décaissement approuvé par auditeur',
-  5: 'Paiement programmé',
-  6: 'Paiement effectué'
+  5: 'Paiement effectué',
+  6: 'Validation paiement par le Patron'
 };
 
 async function backfill() {
@@ -165,8 +165,8 @@ async function backfill() {
         }
       }
 
-      // Étape 5 : paiement programmé (si date_paiement_prevue)
-      if (dep.date_paiement_prevue) {
+      // Étape 5 : paiement effectué (si statut Payée)
+      if (dep.statut === 'Payée') {
         let etape5 = await CircuitDepense.findOne({ where: { depense_id: depId, etape: 5 } });
         if (!etape5) {
           await CircuitDepense.create({
@@ -174,7 +174,7 @@ async function backfill() {
             etape: 5,
             libelle_etape: ETAPES[5],
             depense_id: depId,
-            date_etape: dep.updated_at || dateBase,
+            date_etape: dep.date_paiement || dep.updated_at || dateBase,
             created_by: dep.responsable_paiement_id || dep.approbateur_id
           });
           created++;
@@ -182,8 +182,8 @@ async function backfill() {
         }
       }
 
-      // Étape 6 : paiement effectué (si statut Payée)
-      if (dep.statut === 'Payée') {
+      // Étape 6 : validation paiement par le Patron (si date_paiement_prevue)
+      if (dep.date_paiement_prevue) {
         let etape6 = await CircuitDepense.findOne({ where: { depense_id: depId, etape: 6 } });
         if (!etape6) {
           await CircuitDepense.create({
@@ -191,7 +191,7 @@ async function backfill() {
             etape: 6,
             libelle_etape: ETAPES[6],
             depense_id: depId,
-            date_etape: dep.date_paiement || dep.updated_at || dateBase,
+            date_etape: dep.updated_at || dateBase,
             created_by: dep.responsable_paiement_id || dep.approbateur_id
           });
           created++;

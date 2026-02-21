@@ -12,6 +12,7 @@ const { QueryTypes } = require('sequelize');
 const fs = require('fs'); // Import fs pour la suppression des fichiers temporaires
 
 const TABLE_LIAISONS = 'tbl_liaisons_caissiers';
+const { getGuichetierCaisseId } = require('./guichetier-session');
 
 const router = express.Router();
 
@@ -616,6 +617,15 @@ router.post('/:id/recalculer-solde', requireRole(['Superviseur', 'Superviseur Fi
 // GET /api/caisses/:id/transactions - Récupérer les transactions d'une caisse avec pagination
 router.get('/:id/transactions', requireRole(['Superviseur', 'Superviseur Finance', 'Administrateur', 'Patron', 'Guichetier']), async (req, res) => {
   try {
+    if (req.user.role === 'Guichetier') {
+      const linkedCaisseId = await getGuichetierCaisseId(req.user.id);
+      if (linkedCaisseId && parseInt(req.params.id, 10) !== parseInt(linkedCaisseId, 10)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Vous ne pouvez consulter que les transactions de votre caisse liée.'
+        });
+      }
+    }
     console.log('🔍 Récupération des transactions pour la caisse:', req.params.id);
     
     // Paramètres de pagination

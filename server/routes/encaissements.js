@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sequelize } = require('../config/database');
-const { isGuichetierCloture } = require('./guichetier-session');
+const { isGuichetierCloture, getGuichetierCaisseId } = require('./guichetier-session');
 
 const router = express.Router();
 
@@ -23,7 +23,14 @@ router.get('/', async (req, res) => {
     if (req.user?.role === 'Guichetier') {
       whereClause = `WHERE e.user_guichet_id = :userId`;
       replacements.userId = req.user.id;
-      console.log('🔒 Filtrage par guichetier_id:', req.user.id);
+      const caisseId = await getGuichetierCaisseId(req.user.id);
+      if (caisseId) {
+        whereClause += ` AND e.encaissement_caisse_id = :caisseId`;
+        replacements.caisseId = caisseId;
+        console.log('🔒 Filtrage par guichetier_id + caisse_id:', req.user.id, caisseId);
+      } else {
+        console.log('🔒 Filtrage par guichetier_id (aucune caisse liée):', req.user.id);
+      }
     } else {
       console.log('🔓 Accès complet - tous les encaissements');
     }
@@ -76,6 +83,13 @@ router.post('/', requireRole(['Administrateur', 'Superviseur Comptable', 'Caissi
         return res.status(403).json({
           success: false,
           message: 'Journée (ou shift) clôturée. Aucune opération possible.'
+        });
+      }
+      const linkedCaisseId = await getGuichetierCaisseId(req.user.id);
+      if (linkedCaisseId && parseInt(req.body.caisse_id, 10) !== parseInt(linkedCaisseId, 10)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Vous ne pouvez enregistrer des encaissements que sur votre caisse liée.'
         });
       }
     }

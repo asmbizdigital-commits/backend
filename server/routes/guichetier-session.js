@@ -8,6 +8,32 @@ const router = express.Router();
 router.use(authenticateToken);
 
 const TABLE = 'guichetier_clotures';
+const TABLE_LIAISONS = 'tbl_liaisons_caissiers';
+
+// GET /api/guichetier/ma-caisse — caisse liée au guichetier connecté
+router.get('/ma-caisse', requireRole(['Guichetier']), async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      `SELECT l.caisse_id FROM ${TABLE_LIAISONS} l WHERE l.utilisateur_id = :userId LIMIT 1`,
+      { replacements: { userId: req.user.id }, type: QueryTypes.SELECT }
+    );
+    const liaison = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    if (!liaison) return res.json({ caisse: null });
+    const caisseRows = await sequelize.query(
+      `SELECT id, nom, code_caisse, devise, solde_initial, solde_actuel, statut, emplacement
+       FROM tbl_caisses WHERE id = :caisseId LIMIT 1`,
+      { replacements: { caisseId: liaison.caisse_id }, type: QueryTypes.SELECT }
+    );
+    const caisse = Array.isArray(caisseRows) && caisseRows.length > 0 ? caisseRows[0] : null;
+    return res.json({ caisse });
+  } catch (err) {
+    if (err.message && /doesn't exist|ER_NO_SUCH_TABLE|Unknown table/i.test(err.message)) {
+      return res.json({ caisse: null });
+    }
+    console.error('Guichetier ma-caisse:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
 
 // GET /api/guichetier/session-status — pour le guichetier connecté, indique si la journée/shift est clôturé(e) pour aujourd'hui
 router.get('/session-status', requireRole(['Guichetier']), async (req, res) => {
@@ -93,5 +119,18 @@ async function isGuichetierCloture(userId) {
   }
 }
 
+async function getGuichetierCaisseId(userId) {
+  try {
+    const rows = await sequelize.query(
+      `SELECT caisse_id FROM ${TABLE_LIAISONS} WHERE utilisateur_id = :userId LIMIT 1`,
+      { replacements: { userId }, type: QueryTypes.SELECT }
+    );
+    return Array.isArray(rows) && rows.length > 0 ? rows[0].caisse_id : null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = router;
 module.exports.isGuichetierCloture = isGuichetierCloture;
+module.exports.getGuichetierCaisseId = getGuichetierCaisseId;

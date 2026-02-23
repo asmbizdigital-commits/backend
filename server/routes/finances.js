@@ -10,6 +10,8 @@ const BudgetFin = require('../models/BudgetFin');
 const LigneBudgetFin = require('../models/LigneBudgetFin');
 const FactureFin = require('../models/FactureFin');
 const LigneFactureFin = require('../models/LigneFactureFin');
+const Proforma = require('../models/Proforma');
+const LigneProforma = require('../models/LigneProforma');
 const User = require('../models/User');
 const Client = require('../models/Client');
 const { sequelize } = require('../config/database');
@@ -1240,6 +1242,432 @@ router.delete('/factures/:id', async (req, res) => {
     return res.json({ message: 'Facture supprimée' });
   } catch (err) {
     console.error('Finances facture delete:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// --- Proformas (cotations / factures proforma) ---
+const PROFORMA_PREFIX = 'PRO';
+function nextNumeroProforma() {
+  const y = new Date().getFullYear();
+  return `${PROFORMA_PREFIX}-${y}-`;
+}
+
+async function recalcProformaTotals(proformaId) {
+  const lignes = await LigneProforma.findAll({ where: { proforma_id: proformaId } });
+  let totalHT = 0, totalTVA = 0, totalTTC = 0;
+  lignes.forEach((l) => {
+    totalHT += parseFloat(l.montant_ht || 0);
+    totalTVA += parseFloat(l.montant_ttc || 0) - parseFloat(l.montant_ht || 0);
+    totalTTC += parseFloat(l.montant_ttc || 0);
+  });
+  await Proforma.update(
+    { total_ht: totalHT, total_tva: totalTVA, total_ttc: totalTTC },
+    { where: { id: proformaId } }
+  );
+}
+
+// GET /api/finances/proformas/next-numero
+router.get('/proformas/next-numero', async (req, res) => {
+  try {
+    const prefix = nextNumeroProforma();
+    const count = await Proforma.count({ where: { numero: { [Op.like]: `${prefix}%` } } });
+    const numero = `${prefix}${String(count + 1).padStart(4, '0')}`;
+    return res.json({ numero });
+  } catch (err) {
+    console.error('Finances proformas next-numero:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// GET /api/finances/proformas
+router.get('/proformas', [
+  query('statut').optional().isIn(['brouillon', 'envoyee', 'convertie', 'annulee']),
+  query('date_debut').optional().isDate(),
+  query('date_fin').optional().isDate(),
+  query('search').optional().isString(),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    const where = {};
+    if (req.query.statut) where.statut = req.query.statut;
+    if (req.query.date_debut || req.query.date_fin) {
+      where.date_proforma = {};
+      if (req.query.date_debut) where.date_proforma[Op.gte] = req.query.date_debut;
+      if (req.query.date_fin) where.date_proforma[Op.lte] = req.query.date_fin;
+    }
+    if (req.query.search) {
+      where[Op.or] = [
+        { numero: { [Op.like]: `%${req.query.search}%` } },
+        { client_nom: { [Op.like]: `%${req.query.search}%` } }
+      ];
+    }
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+    const { count, rows } = await Proforma.findAndCountAll({
+      where,
+      attributes: { exclude: ['client_id'] },
+      include: [{ model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'] }],
+      order: [['date_proforma', 'DESC'], ['id', 'DESC']],
+      limit,
+      offset
+    });
+    return res.json({ data: rows, pagination: { page, limit, total: count, pages: Math.ceil(count / limit) } });
+  } catch (err) {
+    console.error('Finances proformas list:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// POST /api/finances/proformas/:id/lignes (avant /proformas/:id pour éviter conflit)
+router.post('/proformas/:id/lignes', [
+  body('libelle').trim().notEmpty().withMessage('Libellé requis'),
+  body('quantite').optional().isFloat({ min: 0 }),
+  body('prix_unitaire').optional().isFloat({ min: 0 }),
+  body('taux_tva').optional().isFloat({ min: 0, max: 100 }),
+  body('compte_id').optional().isInt(),
+  body('ordre').optional().isInt({ min: 0 })
+], async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, { attributes: { exclude: ['client_id'] } });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    if (proforma.statut !== 'brouillon') return res.status(400).json({ message: 'Seules les proformas en brouillon peuvent être modifiées' });
+    const qte = parseFloat(req.body.quantite) || 1;
+    const pu = parseFloat(req.body.prix_unitaire) || 0;
+    const tauxTva = parseFloat(req.body.taux_tva) || 0;
+    const montantHT = qte * pu;
+    const montantTVA = montantHT * (tauxTva / 100);
+    const montantTTC = montantHT + montantTVA;
+    const ordre = parseInt(req.body.ordre, 10) || 0;
+    const ligne = await LigneProforma.create({
+      proforma_id: proforma.id,
+      compte_id: req.body.compte_id || null,
+      libelle: req.body.libelle,
+      quantite: qte,
+      prix_unitaire: pu,
+      montant_ht: montantHT,
+      taux_tva: tauxTva,
+      montant_ttc: montantTTC,
+      ordre
+    });
+    await recalcProformaTotals(proforma.id);
+    const withCompte = await LigneProforma.findByPk(ligne.id, { include: [{ model: CompteFin, as: 'compte', attributes: ['id', 'code', 'libelle'] }] });
+    return res.status(201).json({ data: withCompte });
+  } catch (err) {
+    console.error('Finances proforma ligne create:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/finances/proformas/lignes/:ligneId
+router.put('/proformas/lignes/:ligneId', [
+  body('libelle').optional().trim().notEmpty(),
+  body('quantite').optional().isFloat({ min: 0 }),
+  body('prix_unitaire').optional().isFloat({ min: 0 }),
+  body('taux_tva').optional().isFloat({ min: 0, max: 100 }),
+  body('compte_id').optional().isInt(),
+  body('ordre').optional().isInt({ min: 0 })
+], async (req, res) => {
+  try {
+    const ligne = await LigneProforma.findByPk(req.params.ligneId, { include: [{ model: Proforma, as: 'proforma' }] });
+    if (!ligne) return res.status(404).json({ message: 'Ligne non trouvée' });
+    if (ligne.proforma?.statut !== 'brouillon') return res.status(400).json({ message: 'Proforma non modifiable' });
+    const updates = {};
+    if (req.body.libelle !== undefined) updates.libelle = req.body.libelle;
+    if (req.body.quantite !== undefined) updates.quantite = parseFloat(req.body.quantite);
+    if (req.body.prix_unitaire !== undefined) updates.prix_unitaire = parseFloat(req.body.prix_unitaire);
+    if (req.body.taux_tva !== undefined) updates.taux_tva = parseFloat(req.body.taux_tva);
+    if (req.body.compte_id !== undefined) updates.compte_id = req.body.compte_id || null;
+    if (req.body.ordre !== undefined) updates.ordre = parseInt(req.body.ordre, 10);
+    if (Object.keys(updates).length) {
+      const qte = updates.quantite !== undefined ? updates.quantite : parseFloat(ligne.quantite);
+      const pu = updates.prix_unitaire !== undefined ? updates.prix_unitaire : parseFloat(ligne.prix_unitaire);
+      const tauxTva = updates.taux_tva !== undefined ? updates.taux_tva : parseFloat(ligne.taux_tva);
+      updates.montant_ht = qte * pu;
+      updates.montant_ttc = updates.montant_ht + (updates.montant_ht * (tauxTva / 100));
+      await ligne.update(updates);
+    }
+    await recalcProformaTotals(ligne.proforma_id);
+    const withCompte = await LigneProforma.findByPk(ligne.id, { include: [{ model: CompteFin, as: 'compte', attributes: ['id', 'code', 'libelle'] }] });
+    return res.json({ data: withCompte });
+  } catch (err) {
+    console.error('Finances proforma ligne update:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// DELETE /api/finances/proformas/lignes/:ligneId
+router.delete('/proformas/lignes/:ligneId', async (req, res) => {
+  try {
+    const ligne = await LigneProforma.findByPk(req.params.ligneId, { include: [{ model: Proforma, as: 'proforma' }] });
+    if (!ligne) return res.status(404).json({ message: 'Ligne non trouvée' });
+    if (ligne.proforma?.statut !== 'brouillon') return res.status(400).json({ message: 'Proforma non modifiable' });
+    const proformaId = ligne.proforma_id;
+    await ligne.destroy();
+    await recalcProformaTotals(proformaId);
+    return res.json({ message: 'Ligne supprimée' });
+  } catch (err) {
+    console.error('Finances proforma ligne delete:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// GET /api/finances/proformas/:id/pdf
+router.get('/proformas/:id/pdf', async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, { attributes: { exclude: ['client_id'] }, include: [{ model: LigneProforma, as: 'lignes', order: [['ordre', 'ASC'], ['id', 'ASC']] }] });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    const { buffer } = await pdfService.generateProformaPDF(proforma, proforma.lignes || []);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Proforma-${proforma.numero}.pdf"`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Finances proforma pdf:', err);
+    return res.status(500).json({ message: 'Erreur génération PDF' });
+  }
+});
+
+// POST /api/finances/proformas/:id/envoyer-email
+router.post('/proformas/:id/envoyer-email', [
+  body('email').optional().isEmail()
+], async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, { attributes: { exclude: ['client_id'] }, include: [{ model: LigneProforma, as: 'lignes', order: [['ordre', 'ASC'], ['id', 'ASC']] }] });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    const toEmail = req.body.email || proforma.client_email;
+    if (!toEmail) return res.status(400).json({ message: 'Aucun email destinataire (client ou corps de la requête)' });
+    let nodemailer;
+    try {
+      nodemailer = require('nodemailer');
+    } catch (e) {
+      return res.status(503).json({ message: 'Envoi d\'email non configuré (nodemailer manquant)' });
+    }
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT, 10) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: process.env.SMTP_USER && process.env.SMTP_PASS ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined
+    });
+    const { buffer } = await pdfService.generateProformaPDF(proforma, proforma.lignes || []);
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@hotel-beatrice.com',
+      to: toEmail,
+      subject: `Facture proforma ${proforma.numero} - ${process.env.APP_NAME || 'SYNAPTA SYS'}`,
+      text: `Bonjour,\n\nVeuillez trouver ci-joint la facture proforma ${proforma.numero}.\n\nCordialement.`,
+      attachments: [{ filename: `Proforma-${proforma.numero}.pdf`, content: buffer }]
+    });
+    await proforma.update({ statut: 'envoyee' });
+    return res.json({ message: 'Proforma envoyée par email', statut: 'envoyee' });
+  } catch (err) {
+    console.error('Finances proforma email:', err);
+    return res.status(500).json({ message: err.message || 'Erreur envoi email' });
+  }
+});
+
+// POST /api/finances/proformas/:id/convertir-en-facture
+router.post('/proformas/:id/convertir-en-facture', async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, {
+      include: [{ model: LigneProforma, as: 'lignes', order: [['ordre', 'ASC'], ['id', 'ASC']] }]
+    });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    if (proforma.statut === 'convertie') return res.status(400).json({ message: 'Cette proforma a déjà été convertie en facture' });
+    if (proforma.facture_id) return res.status(400).json({ message: 'Cette proforma est déjà liée à une facture' });
+
+    const prefix = nextNumeroFacture();
+    const count = await FactureFin.count({ where: { numero: { [Op.like]: `${prefix}%` } } });
+    const numeroFacture = `${prefix}${String(count + 1).padStart(4, '0')}`;
+
+    const facture = await FactureFin.create({
+      numero: numeroFacture,
+      client_id: proforma.client_id || null,
+      client_nom: proforma.client_nom,
+      client_email: proforma.client_email || null,
+      client_adresse: proforma.client_adresse || null,
+      client_telephone: proforma.client_telephone || null,
+      date_facture: proforma.date_proforma,
+      date_echeance: proforma.date_echeance || null,
+      statut: 'brouillon',
+      total_ht: parseFloat(proforma.total_ht || 0),
+      total_tva: parseFloat(proforma.total_tva || 0),
+      total_ttc: parseFloat(proforma.total_ttc || 0),
+      devise: proforma.devise || 'FC',
+      template_code: proforma.template_code || 'modern',
+      remarques: proforma.remarques ? `Convertie depuis proforma ${proforma.numero}. ${proforma.remarques}` : `Convertie depuis proforma ${proforma.numero}`,
+      created_by: req.user?.id || null
+    });
+
+    const lignes = proforma.lignes || [];
+    for (let i = 0; i < lignes.length; i++) {
+      const l = lignes[i];
+      await LigneFactureFin.create({
+        facture_id: facture.id,
+        compte_id: l.compte_id || null,
+        libelle: l.libelle,
+        quantite: parseFloat(l.quantite || 0),
+        prix_unitaire: parseFloat(l.prix_unitaire || 0),
+        montant_ht: parseFloat(l.montant_ht || 0),
+        taux_tva: parseFloat(l.taux_tva || 0),
+        montant_ttc: parseFloat(l.montant_ttc || 0),
+        ordre: l.ordre != null ? l.ordre : i
+      });
+    }
+
+    await proforma.update({ statut: 'convertie', facture_id: facture.id });
+
+    const factureWithLignes = await FactureFin.findByPk(facture.id, {
+      attributes: { exclude: ['client_id'] },
+      include: [
+        { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'] },
+        { model: LigneFactureFin, as: 'lignes', order: [['ordre', 'ASC'], ['id', 'ASC']] }
+      ]
+    });
+    return res.status(201).json({
+      message: 'Proforma convertie en facture',
+      data: { proforma_id: proforma.id, facture: factureWithLignes }
+    });
+  } catch (err) {
+    console.error('Finances proforma convertir:', err);
+    return res.status(500).json({ message: err.message || 'Erreur serveur' });
+  }
+});
+
+// GET /api/finances/proformas/:id
+router.get('/proformas/:id', async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, {
+      include: [
+        { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'] },
+        { model: Client, as: 'client', attributes: ['id'], required: false },
+        { model: LigneProforma, as: 'lignes', order: [['ordre', 'ASC'], ['id', 'ASC']], include: [{ model: CompteFin, as: 'compte', attributes: ['id', 'code', 'libelle'] }] },
+        { model: FactureFin, as: 'facture', attributes: ['id', 'numero', 'statut'], required: false }
+      ]
+    });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    return res.json({ data: proforma });
+  } catch (err) {
+    console.error('Finances proforma get:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// POST /api/finances/proformas
+router.post('/proformas', [
+  body('numero').trim().notEmpty().withMessage('Numéro requis'),
+  body('client_id').optional().isInt(),
+  body('client_nom').optional().trim(),
+  body('date_proforma').isDate().withMessage('Date requise'),
+  body('client_email').optional().isEmail(),
+  body('client_adresse').optional().trim(),
+  body('client_telephone').optional().trim(),
+  body('date_echeance').optional().isDate(),
+  body('statut').optional().isIn(['brouillon', 'envoyee', 'convertie', 'annulee']),
+  body('devise').optional().isString().isLength({ max: 5 }),
+  body('template_code').optional().isIn(['minimal', 'modern', 'classic']),
+  body('remarques').optional().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+    let client_nom = req.body.client_nom || null;
+    let client_email = req.body.client_email || null;
+    let client_adresse = req.body.client_adresse || null;
+    let client_telephone = req.body.client_telephone || null;
+    let client_id = req.body.client_id ? parseInt(req.body.client_id, 10) : null;
+    if (client_id) {
+      const client = await Client.findByPk(client_id);
+      if (client) {
+        client_nom = client.getDisplayName();
+        client_email = client.email || client_email;
+        client_adresse = client.adresse || client_adresse;
+        client_telephone = client.telephone || client.mobile || client_telephone;
+      }
+    }
+    if (!client_nom || !client_nom.trim()) return res.status(400).json({ message: 'Client requis (client_id ou client_nom)' });
+    const proforma = await Proforma.create({
+      numero: req.body.numero,
+      client_id: client_id || null,
+      client_nom: client_nom.trim(),
+      client_email: client_email || null,
+      client_adresse: client_adresse || null,
+      client_telephone: client_telephone || null,
+      date_proforma: req.body.date_proforma,
+      date_echeance: req.body.date_echeance || null,
+      statut: req.body.statut || 'brouillon',
+      total_ht: 0,
+      total_tva: 0,
+      total_ttc: 0,
+      devise: req.body.devise || 'FC',
+      template_code: req.body.template_code || 'modern',
+      remarques: req.body.remarques || null,
+      created_by: req.user?.id || null
+    });
+    const created = await Proforma.findByPk(proforma.id, { attributes: { exclude: ['client_id'] }, include: [{ model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'] }] });
+    return res.status(201).json({ data: created });
+  } catch (err) {
+    console.error('Finances proforma create:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/finances/proformas/:id
+router.put('/proformas/:id', [
+  body('numero').optional().trim().notEmpty(),
+  body('client_id').optional().isInt(),
+  body('client_nom').optional().trim(),
+  body('date_proforma').optional().isDate(),
+  body('client_email').optional().isEmail(),
+  body('client_adresse').optional().trim(),
+  body('client_telephone').optional().trim(),
+  body('date_echeance').optional().isDate(),
+  body('statut').optional().isIn(['brouillon', 'envoyee', 'convertie', 'annulee']),
+  body('devise').optional().isString().isLength({ max: 5 }),
+  body('template_code').optional().isIn(['minimal', 'modern', 'classic']),
+  body('remarques').optional().trim()
+], async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, { attributes: { exclude: ['client_id'] } });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    if (proforma.statut !== 'brouillon') return res.status(400).json({ message: 'Seules les proformas en brouillon peuvent être modifiées' });
+    const updates = {};
+    let client_id = req.body.client_id !== undefined ? (req.body.client_id ? parseInt(req.body.client_id, 10) : null) : undefined;
+    if (client_id !== undefined) updates.client_id = client_id;
+    if (req.body.client_id && client_id) {
+      const client = await Client.findByPk(client_id);
+      if (client) {
+        updates.client_nom = client.getDisplayName();
+        updates.client_email = client.email || proforma.client_email;
+        updates.client_adresse = client.adresse || proforma.client_adresse;
+        updates.client_telephone = client.telephone || client.mobile || proforma.client_telephone;
+      }
+    }
+    ['numero', 'client_nom', 'client_email', 'client_adresse', 'client_telephone', 'date_proforma', 'date_echeance', 'statut', 'devise', 'template_code', 'remarques'].forEach((f) => {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    });
+    if (Object.keys(updates).length) await proforma.update(updates);
+    const updated = await Proforma.findByPk(proforma.id, { attributes: { exclude: ['client_id'] }, include: [{ model: User, as: 'createur', attributes: ['id', 'nom', 'prenom'] }] });
+    return res.json({ data: updated });
+  } catch (err) {
+    console.error('Finances proforma update:', err);
+    return res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
+
+// DELETE /api/finances/proformas/:id
+router.delete('/proformas/:id', async (req, res) => {
+  try {
+    const proforma = await Proforma.findByPk(req.params.id, { attributes: { exclude: ['client_id'] } });
+    if (!proforma) return res.status(404).json({ message: 'Proforma non trouvée' });
+    if (proforma.statut !== 'brouillon') return res.status(400).json({ message: 'Seules les proformas en brouillon peuvent être supprimées' });
+    await LigneProforma.destroy({ where: { proforma_id: proforma.id } });
+    await proforma.destroy();
+    return res.json({ message: 'Proforma supprimée' });
+  } catch (err) {
+    console.error('Finances proforma delete:', err);
     return res.status(500).json({ message: 'Erreur serveur' });
   }
 });

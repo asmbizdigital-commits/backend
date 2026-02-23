@@ -488,11 +488,12 @@ class PDFService {
 
   /**
    * Génère un PDF de facture (design selon template_code: minimal, modern, classic)
-   * @param {Object} facture - FactureFin
-   * @param {Array} lignes - LigneFactureFin[]
+   * @param {Object} facture - FactureFin (ou objet compatible: numero, date_facture, client_*, total_*, etc.)
+   * @param {Array} lignes - LigneFactureFin[] ou LigneProforma[]
+   * @param {string} [docTitle='FACTURE'] - Titre affiché (ex: 'FACTURE PROFORMA')
    * @returns {Promise<{buffer: Buffer}>}
    */
-  async generateFacturePDF(facture, lignes = []) {
+  async generateFacturePDF(facture, lignes = [], docTitle = 'FACTURE') {
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({ size: 'A4', margin: 50 });
@@ -508,11 +509,11 @@ class PDFService {
         const totalTTC = parseFloat(facture.total_ttc || 0);
 
         if (template === 'minimal') {
-          this._factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+          this._factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle);
         } else if (template === 'classic') {
-          this._factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+          this._factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle);
         } else {
-          this._factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC);
+          this._factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle);
         }
 
         doc.end();
@@ -522,9 +523,24 @@ class PDFService {
     });
   }
 
-  _factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+  /**
+   * Génère un PDF de facture proforma (cotation)
+   * @param {Object} proforma - Proforma
+   * @param {Array} lignes - LigneProforma[]
+   * @returns {Promise<{buffer: Buffer}>}
+   */
+  async generateProformaPDF(proforma, lignes = []) {
+    const factureLike = {
+      ...proforma.toJSON ? proforma.toJSON() : proforma,
+      date_facture: proforma.date_proforma,
+      statut: proforma.statut || 'brouillon'
+    };
+    return this.generateFacturePDF(factureLike, lignes, 'FACTURE PROFORMA');
+  }
+
+  _factureMinimal(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle = 'FACTURE') {
     doc.fontSize(10).font('Helvetica');
-    doc.text('FACTURE', 50, 50).moveDown(0.3);
+    doc.text(docTitle, 50, 50).moveDown(0.3);
     doc.font('Helvetica-Bold').text(facture.numero, 50, doc.y).moveDown(0.5);
     doc.font('Helvetica');
     doc.text(`Date: ${this.formatDate(facture.date_facture)}`, 50, doc.y);
@@ -557,9 +573,9 @@ class PDFService {
     doc.fontSize(8).font('Helvetica').text(`Statut: ${facture.statut || 'brouillon'}`, 50, 800);
   }
 
-  _factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+  _factureClassic(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle = 'FACTURE') {
     doc.rect(50, 45, 495, 35).fillAndStroke('#f5f5f5', '#ddd');
-    doc.fontSize(14).font('Helvetica-Bold').fillColor('#333').text('FACTURE', 60, 55);
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#333').text(docTitle, 60, 55);
     doc.fontSize(11).font('Helvetica').text(facture.numero, 400, 55);
     doc.text(`Date: ${this.formatDate(facture.date_facture)}`, 400, 68);
     doc.moveDown(2);
@@ -596,10 +612,10 @@ class PDFService {
     doc.fontSize(8).font('Helvetica').fillColor('#666').text(`Échéance: ${facture.date_echeance ? this.formatDate(facture.date_echeance) : '—'}  |  Statut: ${facture.statut || 'brouillon'}`, 50, 800);
   }
 
-  _factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC) {
+  _factureModern(doc, facture, lignes, devise, totalHT, totalTVA, totalTTC, docTitle = 'FACTURE') {
     const accent = '#2563eb';
     doc.rect(0, 0, 595, 80).fill(accent);
-    doc.fillColor('white').fontSize(20).font('Helvetica-Bold').text('FACTURE', 50, 32);
+    doc.fillColor('white').fontSize(20).font('Helvetica-Bold').text(docTitle, 50, 32);
     doc.fontSize(11).font('Helvetica').text(facture.numero, 50, 55);
     doc.fontSize(10).text(`Date: ${this.formatDate(facture.date_facture)}`, 400, 35);
     if (facture.date_echeance) doc.text(`Échéance: ${this.formatDate(facture.date_echeance)}`, 400, 50);

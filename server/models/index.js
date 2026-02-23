@@ -69,6 +69,8 @@ const BudgetFin = require('./BudgetFin');
 const LigneBudgetFin = require('./LigneBudgetFin');
 const FactureFin = require('./FactureFin');
 const LigneFactureFin = require('./LigneFactureFin');
+const Proforma = require('./Proforma');
+const LigneProforma = require('./LigneProforma');
 const Client = require('./Client');
 const RedevanceMine = require('./RedevanceMine');
 const PaiementRedevance = require('./PaiementRedevance');
@@ -182,6 +184,16 @@ EcritureFin.hasOne(FactureFin, { foreignKey: 'ecriture_id', as: 'facture' });
 FactureFin.belongsTo(EcritureFin, { foreignKey: 'ecriture_id', as: 'ecriture' });
 Client.hasMany(FactureFin, { foreignKey: 'client_id', as: 'factures' });
 FactureFin.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Proforma.hasMany(LigneProforma, { foreignKey: 'proforma_id', as: 'lignes' });
+LigneProforma.belongsTo(Proforma, { foreignKey: 'proforma_id', as: 'proforma' });
+CompteFin.hasMany(LigneProforma, { foreignKey: 'compte_id', as: 'lignesProforma' });
+LigneProforma.belongsTo(CompteFin, { foreignKey: 'compte_id', as: 'compte' });
+User.hasMany(Proforma, { foreignKey: 'created_by', as: 'ProformasCrees' });
+Proforma.belongsTo(User, { foreignKey: 'created_by', as: 'createur' });
+Client.hasMany(Proforma, { foreignKey: 'client_id', as: 'proformas' });
+Proforma.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
+Proforma.belongsTo(FactureFin, { foreignKey: 'facture_id', as: 'facture' });
+FactureFin.hasOne(Proforma, { foreignKey: 'facture_id', as: 'proforma' });
 Client.hasMany(Plainte, { foreignKey: 'client_id', as: 'plaintes' });
 Plainte.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
 Client.hasMany(Tache, { foreignKey: 'client_id', as: 'taches' });
@@ -884,6 +896,8 @@ module.exports = {
   LigneBudgetFin,
   FactureFin,
   LigneFactureFin,
+  Proforma,
+  LigneProforma,
   RedevanceMine,
   PaiementRedevance,
   OperateurMine,

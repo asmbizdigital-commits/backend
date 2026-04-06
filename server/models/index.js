@@ -84,6 +84,7 @@ const SoumissionBesoinsLigne = require('./SoumissionBesoinsLigne');
 const CircuitDepense = require('./CircuitDepense');
 const DirectionProvinciale = require('./DirectionProvinciale');
 const BureauInternational = require('./BureauInternational');
+const BlDocument = require('./BlDocument');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -910,5 +911,6 @@ module.exports = {
   CircuitDepense,
   DirectionProvinciale,
   BureauInternational,
+  BlDocument,
   // Alerte removed
 }; 

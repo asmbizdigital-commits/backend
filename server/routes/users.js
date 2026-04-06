@@ -17,7 +17,8 @@ router.get('/', [
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
-    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker'
+    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
+    'Saisisseur', 'Contrôleur Sygram'
   ]),
   query('actif').optional().isBoolean(),
   query('departement_id').optional().isInt({ min: 1 }),
@@ -240,7 +241,8 @@ router.post('/', [
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
-    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker'
+    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
+    'Saisisseur', 'Contrôleur Sygram'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('departement_id').optional().custom((value) => {
@@ -330,7 +332,8 @@ router.put('/:id', [
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
-    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker'
+    'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
+    'Saisisseur', 'Contrôleur Sygram'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('actif').optional().isBoolean(),

@@ -43,7 +43,7 @@ const User = sequelize.define('User', {
     }
   },
   role: {
-    type: DataTypes.ENUM('Guichetier', 'Agent', 'Web Master', 'Superviseur Stock', 'Superviseur Housing', 'Superviseur Finance', 'Superviseur RH', 'Superviseur', 'Administrateur', 'Patron', 'Auditeur', 'Superviseur Technique', 'Superviseur Resto', 'Superviseur Comptable', 'Agent Exterieur', 'Agent Gouvernant', 'Agent Chambre', 'Booker'),
+    type: DataTypes.ENUM('Guichetier', 'Agent', 'Web Master', 'Superviseur Stock', 'Superviseur Housing', 'Superviseur Finance', 'Superviseur RH', 'Superviseur', 'Administrateur', 'Patron', 'Auditeur', 'Superviseur Technique', 'Superviseur Resto', 'Superviseur Buanderie', 'Superviseur Comptable', 'Agent Exterieur', 'Agent Gouvernant', 'Agent Chambre', 'Booker', 'Saisisseur', 'Contrôleur Sygram'),
     allowNull: false,
     defaultValue: 'Agent'
   },
@@ -111,6 +111,8 @@ User.prototype.getFullName = function() {
 User.prototype.hasPermission = function(requiredRole) {
   const roleHierarchy = {
     'Guichetier': 1,
+    'Saisisseur': 2,
+    'Contrôleur Sygram': 2,
     'Agent': 2,
     'Web Master': 3,
     'Superviseur Stock': 4,

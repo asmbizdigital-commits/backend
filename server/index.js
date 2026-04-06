@@ -77,6 +77,8 @@ const parametresSysRoutes = require('./routes/parametres-sys');
 const soumissionsBesoinsRoutes = require('./routes/soumissions-besoins');
 const circuitsDepensesRoutes = require('./routes/circuits-depenses');
 const guichetierSessionRoutes = require('./routes/guichetier-session');
+const directionsProvincialesRoutes = require('./routes/directions-provinciales');
+const bureauxInternationauxRoutes = require('./routes/bureaux-internationaux');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -301,6 +303,8 @@ app.use('/api/parametres-sys', parametresSysRoutes);
 app.use('/api/soumissions-besoins', soumissionsBesoinsRoutes);
 app.use('/api/circuits-depenses', circuitsDepensesRoutes);
 app.use('/api/guichetier', guichetierSessionRoutes);
+app.use('/api/directions-provinciales', directionsProvincialesRoutes);
+app.use('/api/bureaux-internationaux', bureauxInternationauxRoutes);
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));
@@ -531,6 +535,50 @@ async function startServer() {
       console.log('✅ Table guichetier_clotures prête.');
     } catch (err) {
       console.warn('⚠️ guichetier_clotures:', err.message);
+    }
+
+    // Directions provinciales & bureaux internationaux
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_directions_provinciales (
+          id INT NOT NULL AUTO_INCREMENT,
+          nom VARCHAR(200) NOT NULL,
+          code VARCHAR(30) NULL,
+          province VARCHAR(150) NULL,
+          responsable_direction VARCHAR(255) NULL,
+          email VARCHAR(255) NULL,
+          telephone VARCHAR(50) NULL,
+          adresse TEXT NULL,
+          statut ENUM('Actif', 'Inactif') NOT NULL DEFAULT 'Actif',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_direction_provinciale_code (code),
+          KEY idx_direction_prov_statut (statut)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_bureaux_internationaux (
+          id INT NOT NULL AUTO_INCREMENT,
+          nom VARCHAR(200) NOT NULL,
+          code VARCHAR(30) NULL,
+          pays VARCHAR(150) NULL,
+          ville VARCHAR(150) NULL,
+          responsable_bureau VARCHAR(255) NULL,
+          email VARCHAR(255) NULL,
+          telephone VARCHAR(50) NULL,
+          adresse TEXT NULL,
+          statut ENUM('Actif', 'Inactif') NOT NULL DEFAULT 'Actif',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_bureau_international_code (code),
+          KEY idx_bureau_int_statut (statut)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `, { raw: true });
+      console.log('✅ Tables directions provinciales & bureaux internationaux prêtes.');
+    } catch (err) {
+      console.warn('⚠️ tbl_directions_provinciales / tbl_bureaux_internationaux:', err.message);
     }
 
     // Créer tbl_soumissions_besoins et tbl_soumissions_besoins_lignes si absentes

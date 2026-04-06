@@ -85,6 +85,7 @@ const CircuitDepense = require('./CircuitDepense');
 const DirectionProvinciale = require('./DirectionProvinciale');
 const BureauInternational = require('./BureauInternational');
 const BlDocument = require('./BlDocument');
+const AssignationBL = require('./AssignationBL');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -828,6 +829,16 @@ if (Message.associate) {
   Message.associate({ User, Conversation });
 }
 
+// Associations pour les assignations BL
+BlDocument.hasMany(AssignationBL, { foreignKey: 'blDocumentId', as: 'assignationsBL' });
+AssignationBL.belongsTo(BlDocument, { foreignKey: 'blDocumentId', as: 'blDocument' });
+User.hasMany(AssignationBL, { foreignKey: 'assigneeId', as: 'assignationsBLRecues' });
+AssignationBL.belongsTo(User, { foreignKey: 'assigneeId', as: 'assignee' });
+User.hasMany(AssignationBL, { foreignKey: 'assigneParId', as: 'assignationsBLCreees' });
+AssignationBL.belongsTo(User, { foreignKey: 'assigneParId', as: 'assignePar' });
+TaskPro.hasMany(AssignationBL, { foreignKey: 'taskProId', as: 'assignationsBL' });
+AssignationBL.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
+
 // Alert associations removed
 
 module.exports = {
@@ -912,5 +923,6 @@ module.exports = {
   DirectionProvinciale,
   BureauInternational,
   BlDocument,
+  AssignationBL,
   // Alerte removed
 }; 

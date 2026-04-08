@@ -89,7 +89,38 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       rawText,
       status,
       shipper,
-      consignee
+      consignee,
+      numero_dossier,
+      date_emission,
+      validation_fxi,
+      date_validation_fxi,
+      valeur_fob,
+      fret_base,
+      frais_add,
+      assurance,
+      total_cif,
+      importateur,
+      exportateur,
+      transitaire,
+      armateur,
+      type_transport,
+      numero_voyage,
+      conteneur,
+      numero_conteneur,
+      destination_rdc,
+      eta,
+      marchandise,
+      pays_provenance,
+      code_hs,
+      origine,
+      poids_net,
+      poids_brut,
+      volume_cbm,
+      teu,
+      controle_par_id,
+      controle_par,
+      date_controle,
+      declaration_number
     } = req.body;
 
     if (!id || !fileName || !fileHash) {
@@ -113,7 +144,38 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       status: status || 'pending',
       createdAt: new Date(),
       shipper: shipper || null,
-      consignee: consignee || null
+      consignee: consignee || null,
+      numeroDossier: numero_dossier || null,
+      dateEmission: date_emission || null,
+      validationFxi: validation_fxi || null,
+      dateValidationFxi: date_validation_fxi || null,
+      valeurFob: valeur_fob || null,
+      fretBase: fret_base || null,
+      fraisAdd: frais_add || null,
+      assurance: assurance || null,
+      totalCif: total_cif || null,
+      importateur: importateur || null,
+      exportateur: exportateur || null,
+      transitaire: transitaire || null,
+      armateur: armateur || null,
+      typeTransport: type_transport || null,
+      numeroVoyage: numero_voyage || null,
+      conteneur: conteneur || null,
+      numeroConteneur: numero_conteneur || null,
+      destinationRdc: destination_rdc || null,
+      eta: eta || null,
+      marchandise: marchandise || null,
+      paysProvenance: pays_provenance || null,
+      codeHs: code_hs || null,
+      origine: origine || null,
+      poidsNet: poids_net || null,
+      poidsBrut: poids_brut || null,
+      volumeCbm: volume_cbm || null,
+      teu: teu || null,
+      controleParId: controle_par_id || null,
+      controlePar: controle_par || null,
+      dateControle: date_controle || null,
+      declarationNumber: declaration_number || null
     });
 
     emitBlDocumentsChanged(req);
@@ -130,6 +192,70 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création du document B/L'
+    });
+  }
+});
+
+/**
+ * PATCH /api/bl-documents/:id
+ * Met à jour les informations de fiche / déclaration sur un B/L existant.
+ */
+router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await BlDocument.findByPk(id);
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Document B/L introuvable.' });
+    }
+
+    const body = req.body || {};
+    const updates = {
+      numeroDossier: body.numero_dossier ?? doc.numeroDossier,
+      dateEmission: body.date_emission ?? doc.dateEmission,
+      validationFxi: body.validation_fxi ?? doc.validationFxi,
+      dateValidationFxi: body.date_validation_fxi ?? doc.dateValidationFxi,
+      valeurFob: body.valeur_fob ?? doc.valeurFob,
+      fretBase: body.fret_base ?? doc.fretBase,
+      fraisAdd: body.frais_add ?? doc.fraisAdd,
+      assurance: body.assurance ?? doc.assurance,
+      totalCif: body.total_cif ?? doc.totalCif,
+      importateur: body.importateur ?? doc.importateur,
+      exportateur: body.exportateur ?? doc.exportateur,
+      transitaire: body.transitaire ?? doc.transitaire,
+      armateur: body.armateur ?? doc.armateur,
+      blNumber: body.connaissement_bl ?? doc.blNumber,
+      vessel: body.navire ?? doc.vessel,
+      typeTransport: body.type_transport ?? doc.typeTransport,
+      numeroVoyage: body.numero_voyage ?? doc.numeroVoyage,
+      conteneur: body.conteneur ?? doc.conteneur,
+      numeroConteneur: body.numero_conteneur ?? doc.numeroConteneur,
+      portLoading: body.port_chargement ?? doc.portLoading,
+      portDischarge: body.port_dechargement ?? doc.portDischarge,
+      destinationRdc: body.destination_rdc ?? doc.destinationRdc,
+      eta: body.eta ?? doc.eta,
+      marchandise: body.marchandise ?? doc.marchandise,
+      paysProvenance: body.pays_provenance ?? doc.paysProvenance,
+      codeHs: body.code_hs ?? doc.codeHs,
+      origine: body.origine ?? doc.origine,
+      poidsNet: body.poids_net ?? doc.poidsNet,
+      poidsBrut: body.poids_brut ?? doc.poidsBrut,
+      weight: body.poids_brut ?? doc.weight,
+      volumeCbm: body.volume_cbm ?? doc.volumeCbm,
+      teu: body.teu ?? doc.teu,
+      controleParId: body.controle_par_id ?? doc.controleParId,
+      controlePar: body.controle_par ?? doc.controlePar,
+      dateControle: body.date_controle ?? doc.dateControle,
+      declarationNumber: body.declaration_number ?? doc.declarationNumber
+    };
+
+    await doc.update(updates);
+    emitBlDocumentsChanged(req);
+    return res.json({ success: true, document: doc });
+  } catch (error) {
+    console.error('PATCH /api/bl-documents/:id', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la mise à jour du document B/L'
     });
   }
 });

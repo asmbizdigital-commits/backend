@@ -91,6 +91,7 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       shipper,
       consignee,
       numero_dossier,
+      numero_fxi,
       date_emission,
       validation_fxi,
       date_validation_fxi,
@@ -146,6 +147,7 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       shipper: shipper || null,
       consignee: consignee || null,
       numeroDossier: numero_dossier || null,
+      numeroFxi: numero_fxi || validation_fxi || null,
       dateEmission: date_emission || null,
       validationFxi: validation_fxi || null,
       dateValidationFxi: date_validation_fxi || null,
@@ -211,6 +213,7 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
     const body = req.body || {};
     const updates = {
       numeroDossier: body.numero_dossier ?? doc.numeroDossier,
+      numeroFxi: body.numero_fxi ?? body.validation_fxi ?? doc.numeroFxi,
       dateEmission: body.date_emission ?? doc.dateEmission,
       validationFxi: body.validation_fxi ?? doc.validationFxi,
       dateValidationFxi: body.date_validation_fxi ?? doc.dateValidationFxi,

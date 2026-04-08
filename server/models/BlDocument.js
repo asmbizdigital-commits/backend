@@ -23,6 +23,7 @@ const BlDocument = sequelize.define(
     consignee: { type: DataTypes.TEXT },
     numeroDossier: { type: DataTypes.STRING(64), field: 'numero_dossier' },
     dateEmission: { type: DataTypes.DATEONLY, field: 'date_emission' },
+    numeroFxi: { type: DataTypes.STRING(255), field: 'numero_fxi' },
     validationFxi: { type: DataTypes.STRING(255), field: 'validation_fxi' },
     dateValidationFxi: { type: DataTypes.DATEONLY, field: 'date_validation_fxi' },
     valeurFob: { type: DataTypes.STRING(64), field: 'valeur_fob' },

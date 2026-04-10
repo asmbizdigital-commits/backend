@@ -2,7 +2,19 @@ const express = require('express');
 const { query, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const BlDocument = require('../models/BlDocument');
+const AssignationBLControleur = require('../models/AssignationBLControleur');
 const { authenticateToken } = require('../middleware/auth');
+
+function isRoleControleurSygram(role) {
+  if (!role) return false;
+  const n = String(role)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+  if (!n.includes('sygram')) return false;
+  return n.includes('controleur') || n.includes('controlleur');
+}
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -47,6 +59,27 @@ router.get(
       }
       if (status) {
         where.status = status;
+      }
+
+      /** Contrôleur Sygram : uniquement les B/L qui lui sont assignés (tbl_assignation_bl_controleur). */
+      if (isRoleControleurSygram(req.user.role)) {
+        const assignRows = await AssignationBLControleur.findAll({
+          where: {
+            assigneeId: req.user.id,
+            statut: { [Op.ne]: 'Annulée' }
+          },
+          attributes: ['blDocumentId']
+        });
+        const ids = [...new Set(assignRows.map((r) => r.blDocumentId))];
+        if (ids.length === 0) {
+          return res.json({
+            success: true,
+            documents: [],
+            count: 0
+          });
+        }
+        where.id = { [Op.in]: ids };
+        where.isValidated = true;
       }
 
       const documents = await BlDocument.findAll({

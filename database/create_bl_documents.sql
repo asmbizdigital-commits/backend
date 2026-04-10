@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS `bl_documents` (
   `controle_par` varchar(255) DEFAULT NULL,
   `date_controle` datetime DEFAULT NULL,
   `declaration_number` varchar(128) DEFAULT NULL,
+  `is_exported` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_bl_documents_file_hash` (`file_hash`),
   KEY `idx_bl_documents_bl_number` (`bl_number`),

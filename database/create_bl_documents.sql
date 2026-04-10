@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `bl_documents` (
   `declaration_number` varchar(128) DEFAULT NULL,
   `is_exported` tinyint(1) NOT NULL DEFAULT 0,
   `is_declared` tinyint(1) NOT NULL DEFAULT 0,
+  `is_validated` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_bl_documents_file_hash` (`file_hash`),
   KEY `idx_bl_documents_bl_number` (`bl_number`),

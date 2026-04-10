@@ -123,7 +123,8 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       date_controle,
       declaration_number,
       is_exported,
-      is_declared
+      is_declared,
+      is_validated
     } = req.body;
 
     if (!id || !fileName || !fileHash) {
@@ -181,7 +182,8 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       dateControle: date_controle || null,
       declarationNumber: declaration_number || null,
       isExported: Boolean(is_exported),
-      isDeclared: Boolean(is_declared)
+      isDeclared: Boolean(is_declared),
+      isValidated: Boolean(is_validated)
     });
 
     emitBlDocumentsChanged(req);
@@ -254,7 +256,8 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       dateControle: body.date_controle ?? doc.dateControle,
       declarationNumber: body.declaration_number ?? doc.declarationNumber,
       isExported: body.is_exported ?? doc.isExported,
-      isDeclared: body.is_declared ?? doc.isDeclared
+      isDeclared: body.is_declared ?? doc.isDeclared,
+      isValidated: body.is_validated ?? doc.isValidated
     };
 
     await doc.update(updates);

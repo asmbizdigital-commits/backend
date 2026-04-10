@@ -81,6 +81,7 @@ const directionsProvincialesRoutes = require('./routes/directions-provinciales')
 const bureauxInternationauxRoutes = require('./routes/bureaux-internationaux');
 const blDocumentsRoutes = require('./routes/bl-documents');
 const assignationsBLRoutes = require('./routes/assignations-bl');
+const assignationsBLControleurRoutes = require('./routes/assignations-bl-controleur');
 
 const app = express();
 // Socket.io for realtime notifications
@@ -309,6 +310,7 @@ app.use('/api/directions-provinciales', directionsProvincialesRoutes);
 app.use('/api/bureaux-internationaux', bureauxInternationauxRoutes);
 app.use('/api/bl-documents', blDocumentsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
+app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));

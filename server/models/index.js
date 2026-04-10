@@ -86,6 +86,7 @@ const DirectionProvinciale = require('./DirectionProvinciale');
 const BureauInternational = require('./BureauInternational');
 const BlDocument = require('./BlDocument');
 const AssignationBL = require('./AssignationBL');
+const AssignationBLControleur = require('./AssignationBLControleur');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -839,6 +840,15 @@ AssignationBL.belongsTo(User, { foreignKey: 'assigneParId', as: 'assignePar' });
 TaskPro.hasMany(AssignationBL, { foreignKey: 'taskProId', as: 'assignationsBL' });
 AssignationBL.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
 
+BlDocument.hasMany(AssignationBLControleur, { foreignKey: 'blDocumentId', as: 'assignationsBLControleur' });
+AssignationBLControleur.belongsTo(BlDocument, { foreignKey: 'blDocumentId', as: 'blDocument' });
+User.hasMany(AssignationBLControleur, { foreignKey: 'assigneeId', as: 'assignationsBLControleurRecues' });
+AssignationBLControleur.belongsTo(User, { foreignKey: 'assigneeId', as: 'assignee' });
+User.hasMany(AssignationBLControleur, { foreignKey: 'assigneParId', as: 'assignationsBLControleurCreees' });
+AssignationBLControleur.belongsTo(User, { foreignKey: 'assigneParId', as: 'assignePar' });
+TaskPro.hasMany(AssignationBLControleur, { foreignKey: 'taskProId', as: 'assignationsBLControleur' });
+AssignationBLControleur.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
+
 // Alert associations removed
 
 module.exports = {
@@ -924,5 +934,6 @@ module.exports = {
   BureauInternational,
   BlDocument,
   AssignationBL,
+  AssignationBLControleur,
   // Alerte removed
 }; 

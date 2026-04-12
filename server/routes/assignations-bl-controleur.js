@@ -6,6 +6,7 @@ const BlDocument = require('../models/BlDocument');
 const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
+const { assigneeMatchesRoleCible } = require('../utils/userRoles');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -143,7 +144,7 @@ router.post(
 
       const assignee = await User.findByPk(assigneeId);
       if (!assignee) return res.status(404).json({ success: false, message: 'Utilisateur cible introuvable' });
-      if (assignee.role !== roleCible) {
+      if (!assigneeMatchesRoleCible(assignee.role, roleCible)) {
         return res.status(400).json({
           success: false,
           message: `L'utilisateur doit avoir le rôle ${roleCible}`
@@ -245,7 +246,7 @@ router.put(
       if (req.body.assignee_id) {
         const assignee = await User.findByPk(parseInt(req.body.assignee_id, 10));
         if (!assignee) return res.status(404).json({ success: false, message: 'Utilisateur cible introuvable' });
-        if (assignee.role !== row.roleCible) {
+        if (!assigneeMatchesRoleCible(assignee.role, row.roleCible)) {
           return res.status(400).json({
             success: false,
             message: `L'utilisateur doit avoir le rôle ${row.roleCible}`

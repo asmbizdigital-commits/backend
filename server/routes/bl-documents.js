@@ -4,17 +4,7 @@ const { Op } = require('sequelize');
 const BlDocument = require('../models/BlDocument');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const { authenticateToken } = require('../middleware/auth');
-
-function isRoleControleurSygram(role) {
-  if (!role) return false;
-  const n = String(role)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
-  if (!n.includes('sygram')) return false;
-  return n.includes('controleur') || n.includes('controlleur');
-}
+const { isRoleControleurSygram } = require('../utils/userRoles');
 
 const router = express.Router();
 router.use(authenticateToken);

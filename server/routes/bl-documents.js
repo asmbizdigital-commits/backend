@@ -3,6 +3,7 @@ const { query, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const BlDocument = require('../models/BlDocument');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
+const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { isRoleControleurSygram } = require('../utils/userRoles');
 
@@ -78,10 +79,55 @@ router.get(
         limit: parseInt(limit, 10)
       });
 
+      const normBlDocId = (id) => String(id ?? '').trim().toLowerCase();
+
+      const blIds = documents.map((d) => d.id);
+      /** Dernière assignation active par B/L (clé normalisée : casse UUID / espaces). */
+      const assignationByNormBlId = new Map();
+      if (blIds.length > 0) {
+        const assignations = await AssignationBLControleur.findAll({
+          where: {
+            blDocumentId: { [Op.in]: blIds },
+            statut: { [Op.ne]: 'Annulée' }
+          },
+          attributes: ['blDocumentId', 'assigneeId', 'createdAt'],
+          order: [['createdAt', 'DESC']]
+        });
+        for (const a of assignations) {
+          const k = normBlDocId(a.blDocumentId);
+          if (k && !assignationByNormBlId.has(k)) assignationByNormBlId.set(k, a);
+        }
+      }
+
+      const assigneeIds = [...new Set([...assignationByNormBlId.values()].map((a) => a.assigneeId).filter(Boolean))];
+      const userById = new Map();
+      if (assigneeIds.length > 0) {
+        const users = await User.findAll({
+          where: { id: { [Op.in]: assigneeIds } },
+          attributes: ['id', 'prenom', 'nom', 'role']
+        });
+        for (const u of users) userById.set(u.id, u);
+      }
+
+      const documentsPayload = documents.map((doc) => {
+        const json = doc.toJSON();
+        const k = normBlDocId(doc.id);
+        const ass = k ? assignationByNormBlId.get(k) : null;
+        if (ass && ass.assigneeId) {
+          const assignee = userById.get(ass.assigneeId);
+          json.controleAssignee = assignee
+            ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom }
+            : { id: ass.assigneeId, prenom: '', nom: '' };
+        } else {
+          json.controleAssignee = null;
+        }
+        return json;
+      });
+
       res.json({
         success: true,
-        documents,
-        count: documents.length
+        documents: documentsPayload,
+        count: documentsPayload.length
       });
     } catch (error) {
       console.error('GET /api/bl-documents', error);

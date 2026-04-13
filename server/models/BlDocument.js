@@ -55,7 +55,15 @@ const BlDocument = sequelize.define(
     declarationNumber: { type: DataTypes.STRING(128), field: 'declaration_number' },
     isExported: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_exported' },
     isDeclared: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_declared' },
-    isValidated: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_validated' }
+    isValidated: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_validated' },
+    annotationControlleur: { type: DataTypes.TEXT, allowNull: true, field: 'annotation_controlleur' },
+    datetimeAnnotation: { type: DataTypes.DATE, allowNull: true, field: 'datetime_annotation' },
+    isControlledByController: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_controlled_by_controller'
+    }
   },
   {
     tableName: 'bl_documents',

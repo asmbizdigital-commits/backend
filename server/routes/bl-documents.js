@@ -286,6 +286,49 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
     }
 
     const body = req.body || {};
+    const touchesControleChamps =
+      Object.prototype.hasOwnProperty.call(body, 'annotation_controlleur') ||
+      Object.prototype.hasOwnProperty.call(body, 'datetime_annotation') ||
+      Object.prototype.hasOwnProperty.call(body, 'is_controlled_by_controller');
+
+    if (touchesControleChamps) {
+      if (!isRoleControleurSygram(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Seul un contrôleur Sygram assigné à ce dossier peut enregistrer ce contrôle.'
+        });
+      }
+      const assignation = await AssignationBLControleur.findOne({
+        where: {
+          blDocumentId: doc.id,
+          assigneeId: req.user.id,
+          statut: { [Op.ne]: 'Annulée' }
+        }
+      });
+      if (!assignation) {
+        return res.status(403).json({
+          success: false,
+          message: 'Vous devez être assigné à ce dossier pour enregistrer le contrôle.'
+        });
+      }
+      if (body.is_controlled_by_controller === true) {
+        const ann =
+          body.annotation_controlleur != null ? String(body.annotation_controlleur).trim() : '';
+        if (!ann) {
+          return res.status(400).json({
+            success: false,
+            message: 'L’annotation du contrôleur est requise pour valider le contrôle.'
+          });
+        }
+        if (!body.datetime_annotation) {
+          return res.status(400).json({
+            success: false,
+            message: 'La date et l’heure d’annotation sont requises.'
+          });
+        }
+      }
+    }
+
     const updates = {
       numeroDossier: body.numero_dossier ?? doc.numeroDossier,
       numeroFxi: body.numero_fxi ?? body.validation_fxi ?? doc.numeroFxi,
@@ -326,7 +369,15 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       declarationNumber: body.declaration_number ?? doc.declarationNumber,
       isExported: body.is_exported ?? doc.isExported,
       isDeclared: body.is_declared ?? doc.isDeclared,
-      isValidated: body.is_validated ?? doc.isValidated
+      isValidated: body.is_validated ?? doc.isValidated,
+      annotationControlleur:
+        body.annotation_controlleur !== undefined ? body.annotation_controlleur : doc.annotationControlleur,
+      datetimeAnnotation:
+        body.datetime_annotation !== undefined ? body.datetime_annotation : doc.datetimeAnnotation,
+      isControlledByController:
+        body.is_controlled_by_controller !== undefined
+          ? Boolean(body.is_controlled_by_controller)
+          : doc.isControlledByController
     };
 
     await doc.update(updates);

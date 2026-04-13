@@ -1,15 +1,27 @@
-/**
- * Rôle contrôleur Sygram : variantes BDD (Contrôleur / Controlleur, accents).
- */
-function isRoleControleurSygram(role) {
-  if (!role) return false;
-  const n = String(role)
+function normalizeRole(role) {
+  if (!role) return '';
+  return String(role)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+/**
+ * Rôle contrôleur Sygram : variantes BDD (Contrôleur / Controlleur, accents).
+ */
+function isRoleControleurSygram(role) {
+  const n = normalizeRole(role);
   if (!n.includes('sygram')) return false;
   return n.includes('controleur') || n.includes('controlleur');
+}
+
+/**
+ * Rôle Directeur Opérations : accepte la variante avec/sans accent.
+ */
+function isRoleDirecteurOperations(role) {
+  const n = normalizeRole(role);
+  return n === 'directeur operations';
 }
 
 /**
@@ -22,4 +34,9 @@ function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   return assigneeRole === roleCible;
 }
 
-module.exports = { isRoleControleurSygram, assigneeMatchesRoleCible };
+module.exports = {
+  normalizeRole,
+  isRoleControleurSygram,
+  isRoleDirecteurOperations,
+  assigneeMatchesRoleCible
+};

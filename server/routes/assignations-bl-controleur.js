@@ -6,14 +6,12 @@ const BlDocument = require('../models/BlDocument');
 const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { assigneeMatchesRoleCible } = require('../utils/userRoles');
+const { assigneeMatchesRoleCible, isRoleDirecteurOperations } = require('../utils/userRoles');
 
 const router = express.Router();
 router.use(authenticateToken);
 
 const ROLE_CIBLE = 'Contrôleur Sygram';
-const ROLES_CREATEUR = new Set(['Administrateur', 'Directeur Opérations']);
-
 const CHECKLIST_CONTROLE = [
   { id: 1, text: 'Prise en charge du dossier saisi', completed: false },
   { id: 2, text: 'Contrôle conformité et clôturer', completed: false }
@@ -40,7 +38,7 @@ const emitChanged = (req) => {
 
 function requireCreateurAssignControleur(req, res, next) {
   if (req.user.nom === 'Jimmy') return next();
-  if (ROLES_CREATEUR.has(req.user.role)) return next();
+  if (req.user.role === 'Administrateur' || isRoleDirecteurOperations(req.user.role)) return next();
   return res.status(403).json({
     success: false,
     message: 'Seuls un Administrateur ou un Directeur Opérations peuvent assigner un dossier à un contrôleur.'

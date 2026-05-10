@@ -125,7 +125,7 @@ router.get(
 
       const rows = await Connaissement.findAll({
         where,
-        order: [['createdAt', 'DESC']],
+        order: [['created_at', 'DESC']],
         limit: parseInt(limit, 10)
       });
 
@@ -138,7 +138,7 @@ router.get(
             statut: { [Op.ne]: 'Annulée' }
           },
           attributes: ['connaissementId', 'assigneeId', 'createdAt'],
-          order: [['createdAt', 'DESC']]
+          order: [['created_at', 'DESC']]
         });
         for (const a of assignations) {
           const k = normConnId(a.connaissementId);

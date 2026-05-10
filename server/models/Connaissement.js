@@ -61,6 +61,7 @@ const Connaissement = sequelize.define(
   {
     tableName: 'connaissements',
     timestamps: true,
+    underscored: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'
   }

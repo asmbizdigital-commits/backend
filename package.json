@@ -27,7 +27,8 @@
     "migrate": "node scripts/migrate-all.js",
     "migrate:dispatch": "node scripts/migrate-dispatch-housekeeping.js",
     "migrate:liaisons-caissiers": "node scripts/migrate-liaisons-caissiers.js",
-    "migrate:asmproclient": "node scripts/run-migrate-asmproclient.js"
+    "migrate:asmproclient": "node scripts/run-migrate-asmproclient.js",
+    "migrate:assignations-connaissements": "node scripts/run-migrate-assignations-fk-connaissements.js"
   },
   "keywords": [
     "hotel",

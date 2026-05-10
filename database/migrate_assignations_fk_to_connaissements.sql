@@ -1,6 +1,10 @@
 -- Référence les assignations sur `connaissements.id` (INT) au lieu de `bl_documents.id` (UUID).
 -- DESTRUCTIF : supprime les lignes d’assignation existantes (UUID incompatibles avec INT).
 -- Prérequis : table `connaissements` existante (`npm run migrate:asmproclient` ou équivalent).
+--
+-- En production, les noms de contraintes FK peuvent différer. Préférer :
+--   npm run migrate:assignations-connaissements
+-- (script idempotent sous backend/scripts/).
 
 SET FOREIGN_KEY_CHECKS = 0;
 

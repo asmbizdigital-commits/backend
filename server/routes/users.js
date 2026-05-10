@@ -18,7 +18,8 @@ router.get('/', [
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
-    'Saisisseur', 'Contrôleur Sygram', 'Directeur Opérations'
+    'call_center', 'Saisisseur', 'Contrôleur Sygram', 'Controlleur Sygram',
+    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
   ]),
   query('actif').optional().isBoolean(),
   query('departement_id').optional().isInt({ min: 1 }),
@@ -242,7 +243,8 @@ router.post('/', [
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
-    'Saisisseur', 'Contrôleur Sygram', 'Directeur Opérations'
+    'call_center', 'Saisisseur', 'Contrôleur Sygram', 'Controlleur Sygram',
+    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('departement_id').optional().custom((value) => {
@@ -333,7 +335,8 @@ router.put('/:id', [
     'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur', 
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
-    'Saisisseur', 'Contrôleur Sygram', 'Directeur Opérations'
+    'call_center', 'Saisisseur', 'Contrôleur Sygram', 'Controlleur Sygram',
+    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('actif').optional().isBoolean(),

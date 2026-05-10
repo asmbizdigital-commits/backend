@@ -84,7 +84,7 @@ const SoumissionBesoinsLigne = require('./SoumissionBesoinsLigne');
 const CircuitDepense = require('./CircuitDepense');
 const DirectionProvinciale = require('./DirectionProvinciale');
 const BureauInternational = require('./BureauInternational');
-const BlDocument = require('./BlDocument');
+const Connaissement = require('./Connaissement');
 const AssignationBL = require('./AssignationBL');
 const AssignationBLControleur = require('./AssignationBLControleur');
 // Alerte model removed
@@ -831,8 +831,8 @@ if (Message.associate) {
 }
 
 // Associations pour les assignations BL
-BlDocument.hasMany(AssignationBL, { foreignKey: 'blDocumentId', as: 'assignationsBL' });
-AssignationBL.belongsTo(BlDocument, { foreignKey: 'blDocumentId', as: 'blDocument' });
+Connaissement.hasMany(AssignationBL, { foreignKey: 'connaissementId', as: 'assignationsBL' });
+AssignationBL.belongsTo(Connaissement, { foreignKey: 'connaissementId', as: 'connaissement' });
 User.hasMany(AssignationBL, { foreignKey: 'assigneeId', as: 'assignationsBLRecues' });
 AssignationBL.belongsTo(User, { foreignKey: 'assigneeId', as: 'assignee' });
 User.hasMany(AssignationBL, { foreignKey: 'assigneParId', as: 'assignationsBLCreees' });
@@ -840,8 +840,8 @@ AssignationBL.belongsTo(User, { foreignKey: 'assigneParId', as: 'assignePar' });
 TaskPro.hasMany(AssignationBL, { foreignKey: 'taskProId', as: 'assignationsBL' });
 AssignationBL.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
 
-BlDocument.hasMany(AssignationBLControleur, { foreignKey: 'blDocumentId', as: 'assignationsBLControleur' });
-AssignationBLControleur.belongsTo(BlDocument, { foreignKey: 'blDocumentId', as: 'blDocument' });
+Connaissement.hasMany(AssignationBLControleur, { foreignKey: 'connaissementId', as: 'assignationsBLControleur' });
+AssignationBLControleur.belongsTo(Connaissement, { foreignKey: 'connaissementId', as: 'connaissement' });
 User.hasMany(AssignationBLControleur, { foreignKey: 'assigneeId', as: 'assignationsBLControleurRecues' });
 AssignationBLControleur.belongsTo(User, { foreignKey: 'assigneeId', as: 'assignee' });
 User.hasMany(AssignationBLControleur, { foreignKey: 'assigneParId', as: 'assignationsBLControleurCreees' });
@@ -932,7 +932,7 @@ module.exports = {
   CircuitDepense,
   DirectionProvinciale,
   BureauInternational,
-  BlDocument,
+  Connaissement,
   AssignationBL,
   AssignationBLControleur,
   // Alerte removed

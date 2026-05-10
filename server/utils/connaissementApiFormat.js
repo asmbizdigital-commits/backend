@@ -1,0 +1,61 @@
+/**
+ * Sérialisation API pour l’UI héritée (champs façon ancien bl_documents + colonnes métier).
+ */
+function formatConnaissementForClient(row) {
+  const j = typeof row?.toJSON === 'function' ? row.toJSON() : { ...row };
+
+  const shipper = [j.shipperName, j.shipperAddress].filter(Boolean).join('\n');
+  const consignee = [j.consigneeName, j.consigneeAddress].filter(Boolean).join('\n');
+
+  let status = 'pending';
+  if (j.isValidated) status = 'validated';
+  else if (j.isDeclared) status = 'declared';
+  else if (j.isExported) status = 'exported';
+
+  const createdAt = j.createdAt ?? j.created_at;
+
+  return {
+    ...j,
+    numero_dossier: j.numeroDossier ?? j.numero_dossier,
+    shipper,
+    consignee,
+    blNumber: j.blNumber,
+    vessel: j.vesselName,
+    voyageNumber: j.voyageNumber,
+    numeroVoyage: j.voyageNumber,
+    voyage_number: j.voyageNumber,
+    numero_voyage: j.voyageNumber,
+    portLoading: j.portOfLoading,
+    portDischarge: j.portOfDischarge,
+    port_of_loading: j.portOfLoading,
+    port_of_discharge: j.portOfDischarge,
+    weight: j.totalWeightKg != null && j.totalWeightKg !== '' ? String(j.totalWeightKg) : '',
+    volumeCbm: j.totalMeasurementCbm != null && j.totalMeasurementCbm !== '' ? String(j.totalMeasurementCbm) : '',
+    volume_cbm:
+      j.totalMeasurementCbm != null && j.totalMeasurementCbm !== '' ? String(j.totalMeasurementCbm) : '',
+    marchandise: j.goodsDescription,
+    goods_description: j.goodsDescription,
+    codeHs: j.hsCodeIndicated,
+    code_hs: j.hsCodeIndicated,
+    numeroFeri: j.numeroFeri,
+    numero_feri: j.numeroFeri,
+    numeroFxi: j.numeroFxi,
+    numero_fxi: j.numeroFxi,
+    validationFxi: j.validationFxi,
+    validation_fxi: j.validationFxi,
+    declarationNumber: j.declarationNumber,
+    declaration_number: j.declarationNumber,
+    status,
+    fileName: j.fileName ?? null,
+    fileHash: j.fileHash ?? null,
+    bookingNumber: null,
+    booking_number: null,
+    rawText: null,
+    createdAt,
+    numeroDossier: j.numeroDossier,
+    /** nom de table métier pour le front */
+    _sourceTable: 'connaissements'
+  };
+}
+
+module.exports = { formatConnaissementForClient };

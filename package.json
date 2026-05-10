@@ -26,7 +26,8 @@
     "docker:compose": "docker-compose up -d",
     "migrate": "node scripts/migrate-all.js",
     "migrate:dispatch": "node scripts/migrate-dispatch-housekeeping.js",
-    "migrate:liaisons-caissiers": "node scripts/migrate-liaisons-caissiers.js"
+    "migrate:liaisons-caissiers": "node scripts/migrate-liaisons-caissiers.js",
+    "migrate:asmproclient": "node scripts/run-migrate-asmproclient.js"
   },
   "keywords": [
     "hotel",

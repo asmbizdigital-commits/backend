@@ -79,7 +79,7 @@ const circuitsDepensesRoutes = require('./routes/circuits-depenses');
 const guichetierSessionRoutes = require('./routes/guichetier-session');
 const directionsProvincialesRoutes = require('./routes/directions-provinciales');
 const bureauxInternationauxRoutes = require('./routes/bureaux-internationaux');
-const blDocumentsRoutes = require('./routes/bl-documents');
+const connaissementsRoutes = require('./routes/connaissements');
 const assignationsBLRoutes = require('./routes/assignations-bl');
 const assignationsBLControleurRoutes = require('./routes/assignations-bl-controleur');
 
@@ -308,7 +308,8 @@ app.use('/api/circuits-depenses', circuitsDepensesRoutes);
 app.use('/api/guichetier', guichetierSessionRoutes);
 app.use('/api/directions-provinciales', directionsProvincialesRoutes);
 app.use('/api/bureaux-internationaux', bureauxInternationauxRoutes);
-app.use('/api/bl-documents', blDocumentsRoutes);
+app.use('/api/connaissements', connaissementsRoutes);
+app.use('/api/bl-documents', connaissementsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
 app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 

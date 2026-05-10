@@ -2,11 +2,12 @@ const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
-const BlDocument = require('../models/BlDocument');
+const Connaissement = require('../models/Connaissement');
 const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { assigneeMatchesRoleCible, isRoleDirecteurOperations } = require('../utils/userRoles');
+const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -51,6 +52,7 @@ router.get(
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 1000 }),
     query('assignee_id').optional().isInt({ min: 1 }),
+    query('connaissement_id').optional().isInt({ min: 1 }),
     query('bl_document_id').optional().isString().trim(),
     query('statut').optional().isIn(['Assignée', 'En cours', 'Terminée', 'Annulée'])
   ],
@@ -66,7 +68,12 @@ router.get(
       const offset = (page - 1) * limit;
       const where = {};
       if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
-      if (req.query.bl_document_id) where.blDocumentId = req.query.bl_document_id;
+      if (req.query.connaissement_id) {
+        where.connaissementId = parseInt(req.query.connaissement_id, 10);
+      } else if (req.query.bl_document_id) {
+        const cid = parseInt(String(req.query.bl_document_id).trim(), 10);
+        if (!Number.isNaN(cid)) where.connaissementId = cid;
+      }
       if (req.query.statut) where.statut = req.query.statut;
 
       const { count, rows } = await AssignationBLControleur.findAndCountAll({
@@ -74,7 +81,7 @@ router.get(
         include: [
           { model: User, as: 'assignee', attributes: ['id', 'nom', 'prenom', 'role', 'email'] },
           { model: User, as: 'assignePar', attributes: ['id', 'nom', 'prenom', 'role', 'email'] },
-          { model: BlDocument, as: 'blDocument' },
+          { model: Connaissement, as: 'connaissement' },
           { model: TaskPro, as: 'taskPro', attributes: ['id', 'numero_tache', 'titre', 'statut', 'priorite'] }
         ],
         order: [['created_at', 'DESC']],
@@ -106,7 +113,7 @@ router.get('/:id', [param('id').isInt({ min: 1 })], async (req, res) => {
       include: [
         { model: User, as: 'assignee', attributes: ['id', 'nom', 'prenom', 'role', 'email'] },
         { model: User, as: 'assignePar', attributes: ['id', 'nom', 'prenom', 'role', 'email'] },
-        { model: BlDocument, as: 'blDocument' },
+        { model: Connaissement, as: 'connaissement' },
         { model: TaskPro, as: 'taskPro' }
       ]
     });
@@ -122,8 +129,6 @@ router.post(
   '/',
   requireCreateurAssignControleur,
   [
-    body('bl_document_ids').isArray({ min: 1 }),
-    body('bl_document_ids.*').isString().trim().notEmpty(),
     body('assignee_id').isInt({ min: 1 }),
     body('role_cible').optional().isIn([ROLE_CIBLE]),
     body('priorite').optional().isIn(['Normale', 'Haute', 'Urgente']),
@@ -138,7 +143,15 @@ router.post(
       const roleCible = req.body.role_cible || ROLE_CIBLE;
       const priorite = req.body.priorite || 'Normale';
       const assigneeId = parseInt(req.body.assignee_id, 10);
-      const blIds = [...new Set(req.body.bl_document_ids)];
+      const ids = parsePositiveIntIds(
+        req.body.connaissement_ids ?? req.body.bl_document_ids ?? []
+      );
+      if (ids.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'connaissement_ids ou bl_document_ids : tableau non vide attendu.'
+        });
+      }
 
       const assignee = await User.findByPk(assigneeId);
       if (!assignee) return res.status(404).json({ success: false, message: 'Utilisateur cible introuvable' });
@@ -149,28 +162,30 @@ router.post(
         });
       }
 
-      const blRows = await BlDocument.findAll({ where: { id: { [Op.in]: blIds } } });
-      if (blRows.length !== blIds.length) {
-        const found = new Set(blRows.map((r) => r.id));
-        const missing = blIds.filter((id) => !found.has(id));
+      const connRows = await Connaissement.findAll({ where: { id: { [Op.in]: ids } } });
+      if (connRows.length !== ids.length) {
+        const found = new Set(connRows.map((r) => r.id));
+        const missing = ids.filter((id) => !found.has(id));
         return res.status(404).json({
           success: false,
-          message: 'Certains B/L sont introuvables',
+          message: 'Certains connaissements sont introuvables',
+          missing_connaissement_ids: missing,
           missing_bl_document_ids: missing
         });
       }
 
-      const invalid = blRows.filter((bl) => !bl.isValidated);
+      const invalid = connRows.filter((c) => !c.isValidated);
       if (invalid.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Seuls les dossiers validés (FERI) peuvent être assignés au contrôle.',
-          invalid_bl_document_ids: invalid.map((b) => b.id)
+          invalid_connaissement_ids: invalid.map((c) => c.id),
+          invalid_bl_document_ids: invalid.map((c) => c.id)
         });
       }
 
       const created = [];
-      for (const bl of blRows) {
+      for (const bl of connRows) {
         const numero = await generateNumeroTache();
         const task = await TaskPro.create({
           numero_tache: numero,
@@ -192,11 +207,12 @@ router.post(
         });
         await task.addToHistory(req.user.id, 'created', {
           source: 'assignation_bl_controleur',
-          bl_document_id: bl.id
+          connaissement_id: bl.id,
+          bl_document_id: String(bl.id)
         });
 
         const assignation = await AssignationBLControleur.create({
-          blDocumentId: bl.id,
+          connaissementId: bl.id,
           assigneeId,
           roleCible,
           priorite,

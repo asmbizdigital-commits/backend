@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS `tbl_assignations_bl` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `bl_document_id` varchar(36) NOT NULL,
+  `connaissement_id` int NOT NULL,
   `assignee_id` int NOT NULL,
   `role_cible` enum('Saisisseur') NOT NULL DEFAULT 'Saisisseur',
   `priorite` enum('Normale','Haute','Urgente') NOT NULL DEFAULT 'Normale',
@@ -12,13 +12,12 @@ CREATE TABLE IF NOT EXISTS `tbl_assignations_bl` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_assignations_bl_bl_document_id` (`bl_document_id`),
+  KEY `idx_assignations_bl_connaissement_id` (`connaissement_id`),
   KEY `idx_assignations_bl_assignee_id` (`assignee_id`),
   KEY `idx_assignations_bl_statut` (`statut`),
   KEY `idx_assignations_bl_task_pro_id` (`task_pro_id`),
-  CONSTRAINT `fk_assignations_bl_document` FOREIGN KEY (`bl_document_id`) REFERENCES `bl_documents` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_assignations_bl_connaissement` FOREIGN KEY (`connaissement_id`) REFERENCES `connaissements` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_assignations_bl_assignee` FOREIGN KEY (`assignee_id`) REFERENCES `tbl_utilisateurs` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT `fk_assignations_bl_task_pro` FOREIGN KEY (`task_pro_id`) REFERENCES `tbl_task_pro` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_assignations_bl_assigne_par` FOREIGN KEY (`assigne_par_id`) REFERENCES `tbl_utilisateurs` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-

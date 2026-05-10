@@ -9,10 +9,10 @@ const AssignationBLControleur = sequelize.define(
       primaryKey: true,
       autoIncrement: true
     },
-    blDocumentId: {
-      type: DataTypes.STRING(36),
+    connaissementId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      field: 'bl_document_id'
+      field: 'connaissement_id'
     },
     assigneeId: {
       type: DataTypes.INTEGER,
@@ -63,7 +63,7 @@ const AssignationBLControleur = sequelize.define(
     timestamps: true,
     underscored: true,
     indexes: [
-      { fields: ['bl_document_id'] },
+      { fields: ['connaissement_id'] },
       { fields: ['assignee_id'] },
       { fields: ['statut'] },
       { fields: ['task_pro_id'] },

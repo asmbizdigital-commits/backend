@@ -7,6 +7,10 @@ const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { isRoleControleurSygram } = require('../utils/userRoles');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
+const {
+  loadFicheAsmDetail,
+  saveFicheAsmDetail
+} = require('../services/connaissementFicheAsmService');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -275,6 +279,53 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création du connaissement'
+    });
+  }
+});
+
+/**
+ * GET /api/connaissements/:id/fiche-detail — données agrégées (B/L, facture, conteneurs, douanes…).
+ */
+router.get('/:id/fiche-detail', async (req, res) => {
+  try {
+    const pk = parseConnPk(req.params.id);
+    if (!pk) {
+      return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const detail = await loadFicheAsmDetail(pk);
+    if (!detail) {
+      return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    return res.json({ success: true, detail });
+  } catch (error) {
+    console.error('GET /api/connaissements/:id/fiche-detail', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la lecture de la fiche'
+    });
+  }
+});
+
+/**
+ * PATCH /api/connaissements/:id/fiche-detail — enregistre les secteurs édités (transaction SQL).
+ */
+router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const pk = parseConnPk(req.params.id);
+    if (!pk) {
+      return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const detail = await saveFicheAsmDetail(pk, req.body || {});
+    emitConnaissementsChanged(req);
+    return res.json({ success: true, detail });
+  } catch (error) {
+    if (error.message === 'NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    console.error('PATCH /api/connaissements/:id/fiche-detail', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l’enregistrement de la fiche'
     });
   }
 });

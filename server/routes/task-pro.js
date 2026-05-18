@@ -15,6 +15,29 @@ const imageService = new CloudinaryImageService();
 
 const router = express.Router();
 
+/** Filtre date_creation (plage inclusive, bornes locales interprétées en date ISO). */
+function applyDateCreationRange(whereClause, date_from, date_to) {
+  if (!date_from && !date_to) return;
+  const range = {};
+  if (date_from) {
+    const d = new Date(date_from);
+    if (!Number.isNaN(d.getTime())) {
+      d.setHours(0, 0, 0, 0);
+      range[Op.gte] = d;
+    }
+  }
+  if (date_to) {
+    const d = new Date(date_to);
+    if (!Number.isNaN(d.getTime())) {
+      d.setHours(23, 59, 59, 999);
+      range[Op.lte] = d;
+    }
+  }
+  if (Object.keys(range).length > 0) {
+    whereClause.date_creation = range;
+  }
+}
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -153,6 +176,9 @@ router.get('/', [
       ];
     }
 
+    const { date_from, date_to } = req.query;
+    applyDateCreationRange(whereClause, date_from, date_to);
+
     // Order by position for Kanban view
     const order = view === 'kanban' 
       ? [['colonne_kanban', 'ASC'], ['position', 'ASC'], ['date_creation', 'DESC']]
@@ -209,11 +235,21 @@ router.get('/', [
 // GET /api/task-pro/kanban - Get tasks organized by Kanban columns
 router.get('/kanban', async (req, res) => {
   try {
-    const { projet_id, assignee_id, archive = false } = req.query;
+    const {
+      projet_id,
+      assignee_id,
+      archive = false,
+      priorite,
+      departement_id,
+      type_tache,
+      search,
+      date_from,
+      date_to
+    } = req.query;
 
     const whereClause = {
       supprime: false,
-      archive: archive === 'true'
+      archive: archive === 'true' || archive === true
     };
 
     if (projet_id) {
@@ -223,6 +259,30 @@ router.get('/kanban', async (req, res) => {
     if (assignee_id) {
       whereClause.assignee_id = parseInt(assignee_id);
     }
+
+    if (priorite) {
+      whereClause.priorite = priorite;
+    }
+
+    if (departement_id) {
+      const deptId = parseInt(departement_id);
+      if (!Number.isNaN(deptId)) whereClause.departement_id = deptId;
+    }
+
+    if (type_tache) {
+      whereClause.type_tache = type_tache;
+    }
+
+    if (search && String(search).trim() !== '') {
+      const term = String(search).trim();
+      whereClause[Op.or] = [
+        { titre: { [Op.like]: `%${term}%` } },
+        { description: { [Op.like]: `%${term}%` } },
+        { numero_tache: { [Op.like]: `%${term}%` } }
+      ];
+    }
+
+    applyDateCreationRange(whereClause, date_from, date_to);
 
     const tasks = await TaskPro.findAll({
       where: whereClause,

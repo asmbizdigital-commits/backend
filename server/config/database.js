@@ -1,5 +1,9 @@
+const path = require('path');
 const { Sequelize } = require('sequelize');
-require('dotenv').config();
+
+// Racine du repo puis backend/.env (override) — la config ASM/Clever Cloud est dans backend/.env
+require('dotenv').config({ path: path.join(__dirname, '../../../.env') });
+require('dotenv').config({ path: path.join(__dirname, '../../.env'), override: true });
 
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'asmdb',

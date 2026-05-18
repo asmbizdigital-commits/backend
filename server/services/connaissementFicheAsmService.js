@@ -6,6 +6,98 @@ const { QueryTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 const Connaissement = require('../models/Connaissement');
 
+const ITEM_ATTR_KEYS = ['model', 'machine_no', 'chassis_no', 'engine_no', 'year', 'color'];
+
+/** Noms d’attributs possibles en BDD (extracteur, pivot SQL, libellés FR). */
+const ATTR_ALIASES = {
+  model: ['model', 'modele', 'modèle', 'product_model'],
+  machine_no: [
+    'machine_no',
+    'machine_number',
+    'numero_machine',
+    'numéro_machine',
+    'machine',
+    'no_machine',
+    'n_machine',
+    'serial_machine'
+  ],
+  chassis_no: [
+    'chassis_no',
+    'chassis',
+    'chassis_number',
+    'numero_chassis',
+    'numéro_chassis',
+    'no_chassis',
+    'vin'
+  ],
+  engine_no: [
+    'engine_no',
+    'engine',
+    'engine_number',
+    'numero_moteur',
+    'numéro_moteur',
+    'moteur',
+    'no_moteur',
+    'n_moteur'
+  ],
+  year: ['year', 'annee', 'année'],
+  color: ['color', 'couleur', 'colour']
+};
+
+function foldAttrKey(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+function normalizeAttributeKey(raw) {
+  const k = foldAttrKey(raw);
+  for (const [canonical, aliases] of Object.entries(ATTR_ALIASES)) {
+    if (aliases.some((a) => foldAttrKey(a) === k)) return canonical;
+  }
+  return k;
+}
+
+function queryInsertId(result, meta) {
+  if (result && typeof result === 'object' && result.insertId != null) return result.insertId;
+  if (meta && meta.insertId != null) return meta.insertId;
+  return null;
+}
+
+function pickItemValue(item, canonical) {
+  if (!item || typeof item !== 'object') return null;
+  const direct = item[canonical];
+  if (direct != null && String(direct).trim() !== '') return String(direct).trim();
+  for (const alt of ATTR_ALIASES[canonical] || []) {
+    const v = item[alt];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  for (const [k, v] of Object.entries(item)) {
+    if (normalizeAttributeKey(k) === canonical && v != null && String(v).trim() !== '') {
+      return String(v).trim();
+    }
+  }
+  return null;
+}
+
+function normalizeCommercialItem(raw, lineNumber) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {
+    line_number: src.line_number != null ? Number(src.line_number) : lineNumber,
+    quantity: src.quantity != null ? Number(src.quantity) : 1,
+    unit_price: src.unit_price != null ? Number(src.unit_price) : null,
+    total_price: src.total_price != null ? Number(src.total_price) : null
+  };
+  for (const key of ITEM_ATTR_KEYS) {
+    out[key] = pickItemValue(src, key);
+  }
+  return out;
+}
+
 function rowToShipperConsignee(c) {
   const j = typeof c.toJSON === 'function' ? c.toJSON() : c;
   return {
@@ -39,6 +131,20 @@ function rowToShipperConsignee(c) {
 }
 
 async function loadArticlesForFacture(factureId) {
+  try {
+    const pivoted = await sequelize.query(
+      `SELECT * FROM vue_facture_detaillee WHERE facture_id = ? ORDER BY line_number ASC`,
+      { replacements: [factureId], type: QueryTypes.SELECT }
+    );
+    if (pivoted.length > 0) {
+      return pivoted.map((r, idx) =>
+        normalizeCommercialItem(r, r.line_number != null ? Number(r.line_number) : idx + 1)
+      );
+    }
+  } catch {
+    /* vue absente : repli sur articles_facture + articles_attributes */
+  }
+
   const articles = await sequelize.query(
     `SELECT * FROM articles_facture WHERE facture_id = ? ORDER BY line_number ASC`,
     { replacements: [factureId], type: QueryTypes.SELECT }
@@ -56,11 +162,135 @@ async function loadArticlesForFacture(factureId) {
       total_price: af.total_price != null ? Number(af.total_price) : null
     };
     for (const a of attrs) {
-      item[a.attribute_name] = a.attribute_value;
+      const key = normalizeAttributeKey(a.attribute_name);
+      const val = a.attribute_value;
+      if (val != null && String(val).trim() !== '') {
+        item[key] = String(val).trim();
+      }
     }
-    items.push(item);
+    items.push(normalizeCommercialItem(item, af.line_number));
   }
   return items;
+}
+
+async function upsertCommercialInvoiceItems(factureId, items, transaction) {
+  if (!factureId || !Array.isArray(items) || items.length === 0) return;
+
+  const existing = await sequelize.query(
+    `SELECT id, line_number FROM articles_facture WHERE facture_id = ? ORDER BY line_number ASC`,
+    { replacements: [factureId], type: QueryTypes.SELECT, transaction }
+  );
+
+  for (let i = 0; i < items.length; i++) {
+    const normalized = normalizeCommercialItem(items[i], i + 1);
+    const lineNo = Number.isFinite(normalized.line_number) ? normalized.line_number : i + 1;
+    let articleId = existing.find((e) => Number(e.line_number) === lineNo)?.id;
+    if (!articleId && existing[i]?.id) {
+      articleId = existing[i].id;
+    }
+
+    const qty = Number.isFinite(normalized.quantity) ? normalized.quantity : 1;
+
+    if (!articleId) {
+      const [insertResult, insertMeta] = await sequelize.query(
+        `INSERT INTO articles_facture (facture_id, line_number, quantity, unit_price, total_price)
+         VALUES (?, ?, ?, ?, ?)`,
+        {
+          replacements: [
+            factureId,
+            lineNo,
+            qty,
+            normalized.unit_price,
+            normalized.total_price
+          ],
+          transaction
+        }
+      );
+      articleId = queryInsertId(insertResult, insertMeta);
+      if (!articleId) {
+        const rid = await sequelize.query(
+          `SELECT id FROM articles_facture WHERE facture_id = ? AND line_number = ? LIMIT 1`,
+          { replacements: [factureId, lineNo], type: QueryTypes.SELECT, transaction }
+        );
+        articleId = rid[0]?.id;
+      }
+      if (articleId) existing.push({ id: articleId, line_number: lineNo });
+    } else {
+      await sequelize.query(
+        `UPDATE articles_facture SET
+           quantity = COALESCE(?, quantity),
+           unit_price = COALESCE(?, unit_price),
+           total_price = COALESCE(?, total_price)
+         WHERE id = ?`,
+        {
+          replacements: [qty, normalized.unit_price, normalized.total_price, articleId],
+          transaction
+        }
+      );
+    }
+
+    if (!articleId) continue;
+
+    for (const key of ITEM_ATTR_KEYS) {
+      const val = normalized[key];
+      if (val == null) continue;
+      await sequelize.query(
+        `INSERT INTO articles_attributes (article_id, attribute_name, attribute_value)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE attribute_value = VALUES(attribute_value)`,
+        { replacements: [articleId, key, val], transaction }
+      );
+    }
+  }
+}
+
+async function resolveFactureIdForConnaissement(connaissementId, ci, transaction) {
+  const existing = await sequelize.query(
+    `SELECT id FROM factures_commerciales WHERE connaissement_id = ? ORDER BY id ASC LIMIT 1`,
+    { replacements: [connaissementId], type: QueryTypes.SELECT, transaction }
+  );
+  if (existing[0]?.id) return existing[0].id;
+
+  if (!ci) return null;
+  const fin = ci.financials || {};
+  const invNum = ci.invoice_number || `AUTO-${connaissementId}-${Date.now()}`.slice(0, 50);
+  const [insertResult, insertMeta] = await sequelize.query(
+    `INSERT INTO factures_commerciales
+     (connaissement_id, invoice_number, invoice_date, contract_number, currency, fob_value, ocean_freight, insurance, total_cip_value)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    {
+      replacements: [
+        connaissementId,
+        String(invNum).slice(0, 50),
+        ci.date || new Date().toISOString().slice(0, 10),
+        ci.contract_number || null,
+        fin.currency || 'USD',
+        fin.fob_value ?? null,
+        fin.ocean_freight ?? null,
+        fin.insurance ?? null,
+        fin.total_cip_value ?? null
+      ],
+      transaction
+    }
+  );
+  let factureId = queryInsertId(insertResult, insertMeta);
+  if (!factureId) {
+    const rid = await sequelize.query(
+      `SELECT id FROM factures_commerciales WHERE connaissement_id = ? ORDER BY id DESC LIMIT 1`,
+      { replacements: [connaissementId], type: QueryTypes.SELECT, transaction }
+    );
+    factureId = rid[0]?.id;
+  }
+  return factureId || null;
+}
+
+/**
+ * Importe un extrait unifié (commercial_invoice.items, etc.) dans les tables ASM.
+ */
+async function ingestUnifiedExtract(connaissementId, payload) {
+  const id = parseInt(String(connaissementId), 10);
+  if (!Number.isFinite(id) || id < 1) throw new Error('INVALID_ID');
+  return saveFicheAsmDetail(id, payload || {});
 }
 
 /**
@@ -292,45 +522,19 @@ async function saveFicheAsmDetail(connaissementId, body) {
     }
 
     const ci = body.commercial_invoice;
-    if (ci && ci.financials) {
-      const fin = ci.financials;
-      const existing = await sequelize.query(
-        `SELECT id FROM factures_commerciales WHERE connaissement_id = ? ORDER BY id ASC LIMIT 1`,
-        { replacements: [id], type: QueryTypes.SELECT, transaction: t }
-      );
-      let factureId = existing[0]?.id;
-
+    if (ci) {
+      let factureId = null;
+      const rawFid = ci.facture_id ?? ci.factureId;
+      if (rawFid != null && String(rawFid).trim() !== '') {
+        const parsed = parseInt(String(rawFid), 10);
+        if (Number.isFinite(parsed) && parsed > 0) factureId = parsed;
+      }
       if (!factureId) {
-        const invNum =
-          ci.invoice_number || `AUTO-${id}-${Date.now()}`.slice(0, 50);
-        const [, meta] = await sequelize.query(
-          `INSERT INTO factures_commerciales
-           (connaissement_id, invoice_number, invoice_date, contract_number, currency, fob_value, ocean_freight, insurance, total_cip_value)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          {
-            replacements: [
-              id,
-              String(invNum).slice(0, 50),
-              ci.date || new Date().toISOString().slice(0, 10),
-              ci.contract_number || null,
-              fin.currency || 'USD',
-              fin.fob_value ?? null,
-              fin.ocean_freight ?? null,
-              fin.insurance ?? null,
-              fin.total_cip_value ?? null
-            ],
-            transaction: t
-          }
-        );
-        factureId = meta?.insertId;
-        if (!factureId) {
-          const rid = await sequelize.query(
-            `SELECT id FROM factures_commerciales WHERE connaissement_id = ? ORDER BY id DESC LIMIT 1`,
-            { replacements: [id], type: QueryTypes.SELECT, transaction: t }
-          );
-          factureId = rid[0]?.id;
-        }
-      } else {
+        factureId = await resolveFactureIdForConnaissement(id, ci, t);
+      }
+
+      if (factureId && ci.financials) {
+        const fin = ci.financials;
         await sequelize.query(
           `UPDATE factures_commerciales SET
              invoice_number = COALESCE(:inv, invoice_number),
@@ -362,6 +566,8 @@ async function saveFicheAsmDetail(connaissementId, body) {
 
       const bank = ci.banking_info;
       if (bank && factureId) {
+        const swift =
+          bank.swift_code != null ? String(bank.swift_code).trim().slice(0, 20) || null : null;
         await sequelize.query(
           `INSERT INTO infos_bancaires (facture_id, beneficiary, bank_name, swift_code, account_number)
            VALUES (:fid, :ben, :bname, :swift, :acc)
@@ -376,12 +582,22 @@ async function saveFicheAsmDetail(connaissementId, body) {
               fid: factureId,
               ben: bank.beneficiary || '-',
               bname: bank.bank_name || '-',
-              swift: bank.swift_code || null,
+              swift,
               acc: bank.account_number || null
             },
             transaction: t
           }
         );
+      }
+
+      if (Array.isArray(ci.items) && ci.items.length > 0) {
+        if (!factureId) {
+          factureId = await resolveFactureIdForConnaissement(id, ci, t);
+        }
+        if (!factureId) {
+          throw new Error('FACTURE_REQUIRED_FOR_ITEMS');
+        }
+        await upsertCommercialInvoiceItems(factureId, ci.items, t);
       }
     }
 
@@ -418,7 +634,43 @@ async function saveFicheAsmDetail(connaissementId, body) {
   }
 }
 
+/**
+ * Enregistre uniquement les lignes article (N° machine, châssis, moteur, etc.).
+ */
+async function saveCommercialInvoiceItems(connaissementId, items) {
+  const id = parseInt(String(connaissementId), 10);
+  if (!Number.isFinite(id) || id < 1) throw new Error('INVALID_ID');
+  if (!Array.isArray(items) || items.length === 0) {
+    return loadFicheAsmDetail(id);
+  }
+
+  const t = await sequelize.transaction();
+  try {
+    const factures = await sequelize.query(
+      `SELECT id FROM factures_commerciales WHERE connaissement_id = ? ORDER BY id ASC LIMIT 1`,
+      { replacements: [id], type: QueryTypes.SELECT, transaction: t }
+    );
+    let factureId = factures[0]?.id;
+    if (!factureId) {
+      factureId = await resolveFactureIdForConnaissement(id, { financials: { currency: 'USD' } }, t);
+    }
+    if (!factureId) {
+      await t.rollback();
+      throw new Error('FACTURE_REQUIRED_FOR_ITEMS');
+    }
+    await upsertCommercialInvoiceItems(factureId, items, t);
+    await t.commit();
+    return loadFicheAsmDetail(id);
+  } catch (e) {
+    await t.rollback();
+    throw e;
+  }
+}
+
 module.exports = {
   loadFicheAsmDetail,
-  saveFicheAsmDetail
+  saveFicheAsmDetail,
+  ingestUnifiedExtract,
+  upsertCommercialInvoiceItems,
+  saveCommercialInvoiceItems
 };

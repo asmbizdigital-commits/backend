@@ -9,7 +9,9 @@ const { isRoleControleurSygram } = require('../utils/userRoles');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
 const {
   loadFicheAsmDetail,
-  saveFicheAsmDetail
+  saveFicheAsmDetail,
+  ingestUnifiedExtract,
+  saveCommercialInvoiceItems
 } = require('../services/connaissementFicheAsmService');
 
 const router = express.Router();
@@ -307,6 +309,68 @@ router.get('/:id/fiche-detail', async (req, res) => {
 });
 
 /**
+ * POST /api/connaissements/:id/ingest-unified — importe un extrait JSON unifié (items, facture, conteneurs…).
+ */
+router.post('/:id/ingest-unified', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const pk = parseConnPk(req.params.id);
+    if (!pk) {
+      return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const detail = await ingestUnifiedExtract(pk, req.body || {});
+    emitConnaissementsChanged(req);
+    return res.json({ success: true, detail });
+  } catch (error) {
+    if (error.message === 'NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    console.error('POST /api/connaissements/:id/ingest-unified', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l’import de l’extrait unifié'
+    });
+  }
+});
+
+/**
+ * PATCH /api/connaissements/:id/article-items — enregistre les lignes article (machine / châssis / moteur).
+ */
+router.patch('/:id/article-items', express.json({ limit: '512kb' }), async (req, res) => {
+  try {
+    const pk = parseConnPk(req.params.id);
+    if (!pk) {
+      return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const items = req.body?.items ?? req.body?.commercial_invoice?.items;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Corps attendu : { "items": [ ... ] }'
+      });
+    }
+    const detail = await saveCommercialInvoiceItems(pk, items);
+    emitConnaissementsChanged(req);
+    return res.json({ success: true, detail });
+  } catch (error) {
+    if (error.message === 'NOT_FOUND') {
+      return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    if (error.message === 'FACTURE_REQUIRED_FOR_ITEMS') {
+      return res.status(422).json({
+        success: false,
+        message:
+          'Aucune facture commerciale liée à ce connaissement. Renseignez d’abord la section facture ou importez l’extrait unifié.'
+      });
+    }
+    console.error('PATCH /api/connaissements/:id/article-items', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l’enregistrement des lignes article'
+    });
+  }
+});
+
+/**
  * PATCH /api/connaissements/:id/fiche-detail — enregistre les secteurs édités (transaction SQL).
  */
 router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, res) => {
@@ -321,6 +385,13 @@ router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, re
   } catch (error) {
     if (error.message === 'NOT_FOUND') {
       return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    if (error.message === 'FACTURE_REQUIRED_FOR_ITEMS') {
+      return res.status(422).json({
+        success: false,
+        message:
+          'Impossible d’enregistrer les lignes article : aucune facture commerciale liée. Complétez la facture ou importez l’extrait unifié.'
+      });
     }
     console.error('PATCH /api/connaissements/:id/fiche-detail', error);
     return res.status(500).json({

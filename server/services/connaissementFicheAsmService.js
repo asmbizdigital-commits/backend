@@ -293,6 +293,133 @@ async function ingestUnifiedExtract(connaissementId, payload) {
   return saveFicheAsmDetail(id, payload || {});
 }
 
+function toIsoDateOnly(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const s = String(v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+/**
+ * Formate la fiche agrégée au format extrait unifié (import / export JSON).
+ * @param {object} detail — résultat de loadFicheAsmDetail
+ */
+function buildUnifiedExtractFromFicheDetail(detail) {
+  if (!detail) return null;
+
+  const bd = detail.bl_details || {};
+  const ci = detail.commercial_invoice;
+  const cd = detail.customs_documents;
+
+  const bl_details = {
+    bl_number: bd.bl_number ?? null,
+    carrier: bd.carrier ?? null,
+    shipper: {
+      name: bd.shipper?.name ?? '',
+      address: bd.shipper?.address ?? ''
+    },
+    consignee: {
+      name: bd.consignee?.name ?? '',
+      address: bd.consignee?.address ?? ''
+    },
+    vessel_details: {
+      vessel_name: bd.vessel_details?.vessel_name ?? '',
+      voyage_number: bd.vessel_details?.voyage_number ?? ''
+    },
+    routing: {
+      port_of_loading: bd.routing?.port_of_loading ?? '',
+      port_of_discharge: bd.routing?.port_of_discharge ?? '',
+      place_of_delivery: bd.routing?.place_of_delivery ?? ''
+    },
+    cargo_summary: {
+      goods_description: bd.cargo_summary?.goods_description ?? '',
+      total_packages:
+        bd.cargo_summary?.total_packages != null
+          ? String(bd.cargo_summary.total_packages)
+          : '',
+      total_weight_kg:
+        bd.cargo_summary?.total_weight_kg != null && bd.cargo_summary.total_weight_kg !== ''
+          ? Number(bd.cargo_summary.total_weight_kg)
+          : null,
+      total_measurement_cbm:
+        bd.cargo_summary?.total_measurement_cbm != null && bd.cargo_summary.total_measurement_cbm !== ''
+          ? Number(bd.cargo_summary.total_measurement_cbm)
+          : null,
+      hs_code_indicated: bd.cargo_summary?.hs_code_indicated ?? ''
+    },
+    containers: (bd.containers || []).map((co) => ({
+      container_number: co.container_number ?? null,
+      seal_number: co.seal_number ?? null,
+      type: co.type ?? null,
+      weight_kg: co.weight_kg != null ? Number(co.weight_kg) : null,
+      measurement_cbm: co.measurement_cbm != null ? Number(co.measurement_cbm) : null
+    }))
+  };
+
+  let commercial_invoice = null;
+  if (ci) {
+    const fin = ci.financials || {};
+    commercial_invoice = {
+      invoice_number: ci.invoice_number ?? null,
+      date: toIsoDateOnly(ci.date),
+      contract_number: ci.contract_number ?? null,
+      financials: {
+        currency: fin.currency || 'USD',
+        fob_value: fin.fob_value != null && fin.fob_value !== '' ? Number(fin.fob_value) : null,
+        ocean_freight:
+          fin.ocean_freight != null && fin.ocean_freight !== '' ? Number(fin.ocean_freight) : null,
+        insurance: fin.insurance != null && fin.insurance !== '' ? Number(fin.insurance) : null,
+        total_cip_value:
+          fin.total_cip_value != null && fin.total_cip_value !== ''
+            ? Number(fin.total_cip_value)
+            : null
+      },
+      items: (ci.items || []).map((it) => {
+        const n = normalizeCommercialItem(it, it.line_number);
+        return {
+          model: n.model ?? null,
+          machine_no: n.machine_no ?? null,
+          chassis_no: n.chassis_no ?? null,
+          engine_no: n.engine_no ?? null,
+          year: n.year ?? null,
+          color: n.color ?? null
+        };
+      }),
+      banking_info: ci.banking_info
+        ? {
+            beneficiary: ci.banking_info.beneficiary ?? null,
+            bank_name: ci.banking_info.bank_name ?? null,
+            swift_code: ci.banking_info.swift_code ?? null,
+            account_number: ci.banking_info.account_number ?? null
+          }
+        : null
+    };
+  }
+
+  const customs_documents = cd
+    ? {
+        feri_number: cd.feri_number ?? null,
+        feri_validation_date: toIsoDateOnly(cd.feri_validation_date),
+        bv_number: cd.bv_number ?? null
+      }
+    : null;
+
+  return {
+    bl_details,
+    commercial_invoice,
+    customs_documents
+  };
+}
+
+/**
+ * @returns {Promise<object|null>}
+ */
+async function loadUnifiedExtract(connaissementId) {
+  const detail = await loadFicheAsmDetail(connaissementId);
+  if (!detail) return null;
+  return buildUnifiedExtractFromFicheDetail(detail);
+}
+
 /**
  * @returns {Promise<object|null>}
  */
@@ -669,6 +796,8 @@ async function saveCommercialInvoiceItems(connaissementId, items) {
 
 module.exports = {
   loadFicheAsmDetail,
+  loadUnifiedExtract,
+  buildUnifiedExtractFromFicheDetail,
   saveFicheAsmDetail,
   ingestUnifiedExtract,
   upsertCommercialInvoiceItems,

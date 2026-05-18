@@ -9,6 +9,7 @@ const { isRoleControleurSygram } = require('../utils/userRoles');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
 const {
   loadFicheAsmDetail,
+  loadUnifiedExtract,
   saveFicheAsmDetail,
   ingestUnifiedExtract,
   saveCommercialInvoiceItems
@@ -304,6 +305,29 @@ router.get('/:id/fiche-detail', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Erreur lors de la lecture de la fiche'
+    });
+  }
+});
+
+/**
+ * GET /api/connaissements/:id/unified-extract — extrait JSON unifié (B/L, facture, douanes, articles…).
+ */
+router.get('/:id/unified-extract', async (req, res) => {
+  try {
+    const pk = parseConnPk(req.params.id);
+    if (!pk) {
+      return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const extract = await loadUnifiedExtract(pk);
+    if (!extract) {
+      return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+    return res.json({ success: true, extract });
+  } catch (error) {
+    console.error('GET /api/connaissements/:id/unified-extract', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération de l’extrait unifié'
     });
   }
 });

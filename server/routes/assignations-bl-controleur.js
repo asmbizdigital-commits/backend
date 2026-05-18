@@ -14,8 +14,8 @@ router.use(authenticateToken);
 
 const ROLE_CIBLE = 'Contrôleur Sygram';
 const CHECKLIST_CONTROLE = [
-  { id: 1, text: 'Prise en charge du dossier saisi', completed: false },
-  { id: 2, text: 'Contrôle conformité et clôturer', completed: false }
+  { id: 1, text: 'Validation FERI et clôture', completed: false },
+  { id: 2, text: 'Contrôle conformité Sygram', completed: false }
 ];
 
 const generateNumeroTache = async () => {
@@ -174,11 +174,16 @@ router.post(
         });
       }
 
-      const invalid = connRows.filter((c) => !c.isValidated);
+      const invalid = connRows.filter(
+        (c) =>
+          !c.isDeclared ||
+          !String(c.numeroDossier || '').trim()
+      );
       if (invalid.length > 0) {
         return res.status(400).json({
           success: false,
-          message: 'Seuls les dossiers validés (FERI) peuvent être assignés au contrôle.',
+          message:
+            'Seuls les dossiers déclarés (avec numéro de dossier) peuvent être assignés au contrôle Sygram.',
           invalid_connaissement_ids: invalid.map((c) => c.id),
           invalid_bl_document_ids: invalid.map((c) => c.id)
         });

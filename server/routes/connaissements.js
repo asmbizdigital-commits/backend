@@ -442,6 +442,35 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       Object.prototype.hasOwnProperty.call(body, 'datetime_annotation') ||
       Object.prototype.hasOwnProperty.call(body, 'is_controlled_by_controller');
 
+    const assignationControleur = await AssignationBLControleur.findOne({
+      where: {
+        connaissementId: doc.id,
+        assigneeId: req.user.id,
+        statut: { [Op.ne]: 'Annulée' }
+      }
+    });
+
+    if (body.is_validated === true) {
+      if (!isRoleControleurSygram(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Seul un contrôleur Sygram peut valider et clôturer un dossier (FERI).'
+        });
+      }
+      if (!assignationControleur) {
+        return res.status(403).json({
+          success: false,
+          message: 'Vous devez être assigné à ce dossier pour la validation et clôture.'
+        });
+      }
+      if (!doc.isDeclared) {
+        return res.status(400).json({
+          success: false,
+          message: 'Le dossier doit être déclaré avant validation FERI.'
+        });
+      }
+    }
+
     if (touchesControleChamps) {
       if (!isRoleControleurSygram(req.user.role)) {
         return res.status(403).json({
@@ -449,14 +478,7 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
           message: 'Seul un contrôleur Sygram assigné à ce dossier peut enregistrer ce contrôle.'
         });
       }
-      const assignation = await AssignationBLControleur.findOne({
-        where: {
-          connaissementId: doc.id,
-          assigneeId: req.user.id,
-          statut: { [Op.ne]: 'Annulée' }
-        }
-      });
-      if (!assignation) {
+      if (!assignationControleur) {
         return res.status(403).json({
           success: false,
           message: 'Vous devez être assigné à ce dossier pour enregistrer le contrôle.'

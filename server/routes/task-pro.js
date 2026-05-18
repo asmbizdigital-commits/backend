@@ -15,23 +15,28 @@ const imageService = new CloudinaryImageService();
 
 const router = express.Router();
 
-/** Filtre date_creation (plage inclusive, bornes locales interprétées en date ISO). */
+/** Parse YYYY-MM-DD en borne locale (évite le décalage UTC de new Date('YYYY-MM-DD')). */
+function parseLocalDateBoundary(isoDateStr, endOfDay = false) {
+  const m = String(isoDateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  if (endOfDay) return new Date(y, mo, d, 23, 59, 59, 999);
+  return new Date(y, mo, d, 0, 0, 0, 0);
+}
+
+/** Filtre strict sur date_creation uniquement (date de création de la tâche). */
 function applyDateCreationRange(whereClause, date_from, date_to) {
   if (!date_from && !date_to) return;
   const range = {};
-  if (date_from) {
-    const d = new Date(date_from);
-    if (!Number.isNaN(d.getTime())) {
-      d.setHours(0, 0, 0, 0);
-      range[Op.gte] = d;
-    }
+  const fromD = date_from ? parseLocalDateBoundary(date_from, false) : null;
+  const toD = date_to ? parseLocalDateBoundary(date_to, true) : null;
+  if (fromD && !Number.isNaN(fromD.getTime())) {
+    range[Op.gte] = fromD;
   }
-  if (date_to) {
-    const d = new Date(date_to);
-    if (!Number.isNaN(d.getTime())) {
-      d.setHours(23, 59, 59, 999);
-      range[Op.lte] = d;
-    }
+  if (toD && !Number.isNaN(toD.getTime())) {
+    range[Op.lte] = toD;
   }
   if (Object.keys(range).length > 0) {
     whereClause.date_creation = range;

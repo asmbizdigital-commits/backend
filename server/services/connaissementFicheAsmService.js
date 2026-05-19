@@ -293,11 +293,45 @@ async function ingestUnifiedExtract(connaissementId, payload) {
   return saveFicheAsmDetail(id, payload || {});
 }
 
+function isInvalidDateLiteral(value) {
+  if (value == null || value === '') return true;
+  const s = String(value).trim().toLowerCase();
+  return !s || s === 'invalid date' || s.includes('invalid');
+}
+
+/** DATE / DATEONLY MySQL — null si vide ou invalide. */
+function sanitizeDateOnly(value) {
+  if (isInvalidDateLiteral(value)) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+  const s = String(value).trim();
+  if (s.startsWith('0000-00-00')) return null;
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/** DATETIME MySQL — null si vide ou invalide. */
+function sanitizeDateTime(value) {
+  if (isInvalidDateLiteral(value)) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return value;
+  }
+  const s = String(value).trim();
+  if (s.startsWith('0000-00-00')) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s) ? `${s}:00` : s;
+  const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
 function toIsoDateOnly(v) {
-  if (v == null || v === '') return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
-  const s = String(v).slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  return sanitizeDateOnly(v);
 }
 
 /**
@@ -605,12 +639,14 @@ async function saveFicheAsmDetail(connaissementId, body) {
           numeroDossier:
             leg.numero_dossier !== undefined ? leg.numero_dossier ?? null : doc.numeroDossier,
           dateEmission:
-            leg.date_emission !== undefined ? leg.date_emission ?? null : doc.dateEmission,
+            leg.date_emission !== undefined
+              ? sanitizeDateOnly(leg.date_emission)
+              : doc.dateEmission,
           validationFxi:
             leg.validation_fxi !== undefined ? leg.validation_fxi ?? null : doc.validationFxi,
           dateValidationFxi:
             leg.date_validation_fxi !== undefined
-              ? leg.date_validation_fxi ?? null
+              ? sanitizeDateOnly(leg.date_validation_fxi)
               : doc.dateValidationFxi,
           controleParId:
             leg.controle_par_id !== undefined && leg.controle_par_id !== ''
@@ -619,8 +655,10 @@ async function saveFicheAsmDetail(connaissementId, body) {
           controlePar:
             leg.controle_par !== undefined ? leg.controle_par ?? null : doc.controlePar,
           dateControle:
-            leg.date_controle !== undefined ? leg.date_controle ?? null : doc.dateControle,
-          eta: leg.eta !== undefined ? leg.eta ?? null : doc.eta
+            leg.date_controle !== undefined
+              ? sanitizeDateTime(leg.date_controle)
+              : doc.dateControle,
+          eta: leg.eta !== undefined ? sanitizeDateTime(leg.eta) : doc.eta
         },
         { transaction: t }
       );
@@ -640,7 +678,7 @@ async function saveFicheAsmDetail(connaissementId, body) {
           replacements: {
             cid: id,
             feri: cd.feri_number || null,
-            feri_d: cd.feri_validation_date || null,
+            feri_d: sanitizeDateOnly(cd.feri_validation_date),
             bv: cd.bv_number || null
           },
           transaction: t
@@ -678,7 +716,7 @@ async function saveFicheAsmDetail(connaissementId, body) {
             replacements: {
               fid: factureId,
               inv: ci.invoice_number || null,
-              idate: ci.date || null,
+              idate: sanitizeDateOnly(ci.date),
               contract: ci.contract_number ?? null,
               cur: fin.currency || null,
               fob: fin.fob_value ?? null,

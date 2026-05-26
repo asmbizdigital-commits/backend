@@ -70,15 +70,25 @@ class Employee {
         contact_urgence_prenom, contact_urgence_lien, contact_urgence_telephone, matricule,
         poste, departement_id, sous_departement_id, date_embauche, type_contrat, date_fin_contrat, temps_travail,
         statut, niveau_classification, salaire_journalier, transport, indemnites_diverse, photo_url, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
+
+    const dateOnly = (v) => {
+      if (v == null || v === '') return null;
+      const s = String(v).trim();
+      if (!s || s === 'Invalid date') return null;
+      return s.length >= 10 ? s.slice(0, 10) : s;
+    };
+
+    const indemnites =
+      employeeData.indemnites_diverse ?? employeeData.indemnites_diverses ?? 0.0;
     
     const values = [
       employeeData.civilite || null, 
       employeeData.nom_famille || null, 
       employeeData.nom_usage || null,
       employeeData.prenoms || null, 
-      employeeData.date_naissance || null, 
+      dateOnly(employeeData.date_naissance), 
       employeeData.lieu_naissance || null,
       employeeData.nationalite || null, 
       employeeData.numero_securite_sociale || null, 
@@ -99,15 +109,15 @@ class Employee {
       employeeData.poste || null,
       employeeData.departement_id || null, 
       employeeData.sous_departement_id || null, 
-      employeeData.date_embauche || null, 
+      dateOnly(employeeData.date_embauche), 
       employeeData.type_contrat || null,
-      employeeData.date_fin_contrat || null, 
+      dateOnly(employeeData.date_fin_contrat), 
       employeeData.temps_travail || null, 
       employeeData.statut || 'Actif',
       employeeData.niveau_classification || null,
       employeeData.salaire_journalier || 0.00,
       employeeData.transport || 0.00,
-      employeeData.indemnites_diverse || 0.00,
+      indemnites,
       employeeData.photo_url || null, 
       employeeData.created_by || null
     ];

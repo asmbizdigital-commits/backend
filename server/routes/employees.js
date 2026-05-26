@@ -190,9 +190,12 @@ router.post('/', authenticateToken, requireRole(['Superviseur RH', 'Administrate
       fs.unlinkSync(req.file.path);
     }
     
+    const detail = error?.message || String(error);
+    console.error('Détail:', detail);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la création de l\'employé'
+      message: 'Erreur serveur lors de la création de l\'employé',
+      error: process.env.NODE_ENV === 'production' ? undefined : detail
     });
   }
 });

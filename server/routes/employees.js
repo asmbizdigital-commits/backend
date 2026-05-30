@@ -1,10 +1,32 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const Employee = require('../models/Employee');
+const Departement = require('../models/Departement');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { CloudinaryService, upload } = require('../services/cloudinaryService');
+const {
+  parseWorkbookBuffer,
+  validateRow,
+  buildTemplateBuffer,
+  isInstructionOrExampleRow
+} = require('../services/employeeExcelImport');
 const fs = require('fs');
 const path = require('path');
+
+const RH_IMPORT_ROLES = ['Superviseur RH', 'Administrateur', 'Patron'];
+
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok =
+      /\.(xlsx|xls)$/i.test(file.originalname) ||
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel';
+    cb(ok ? null : new Error('Fichier Excel (.xlsx) requis'), ok);
+  }
+});
 
 // Middleware pour valider les données d'employé (création)
 const validateEmployeeData = (req, res, next) => {
@@ -109,6 +131,127 @@ router.get('/stats', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// GET /api/employees/import/template — modèle Excel import par lot
+router.get('/import/template', authenticateToken, requireRole(RH_IMPORT_ROLES), async (req, res) => {
+  try {
+    const departements = await Departement.findAll({
+      where: { statut: 'Actif' },
+      attributes: ['id', 'nom', 'code'],
+      order: [['nom', 'ASC']]
+    });
+    const buffer = buildTemplateBuffer(departements);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="modele_import_employes.xlsx"'
+    );
+    res.send(buffer);
+  } catch (error) {
+    console.error('Erreur génération modèle employés:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du modèle Excel'
+    });
+  }
+});
+
+// POST /api/employees/import/bulk — enregistrement par lot depuis Excel
+router.post(
+  '/import/bulk',
+  authenticateToken,
+  requireRole(RH_IMPORT_ROLES),
+  excelUpload.single('file'),
+  async (req, res) => {
+    try {
+      if (!req.file?.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Fichier Excel requis (champ file)'
+        });
+      }
+
+      const parsed = parseWorkbookBuffer(req.file.buffer);
+      if (!parsed.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Aucune ligne de données dans le fichier (feuille Employes, à partir de la ligne 4)'
+        });
+      }
+
+      const dataRows = parsed;
+
+      const created = [];
+      const errors = [];
+      const seenEmails = new Set();
+
+      for (const { data, rowIndex } of dataRows) {
+        if (isInstructionOrExampleRow(data)) continue;
+
+        const hasAny =
+          data.nom_famille ||
+          data.prenoms ||
+          data.email_personnel ||
+          data.poste;
+        if (!hasAny) continue;
+
+        const validationError = validateRow(data, rowIndex);
+        if (validationError) {
+          errors.push({ row: rowIndex, message: validationError });
+          continue;
+        }
+
+        const emailKey = data.email_personnel.toLowerCase();
+        if (seenEmails.has(emailKey)) {
+          errors.push({ row: rowIndex, message: `Ligne ${rowIndex} : email en double dans le fichier` });
+          continue;
+        }
+        seenEmails.add(emailKey);
+
+        const existing = await Employee.findAll({ search: data.email_personnel });
+        if (existing.some((emp) => emp.email_personnel?.toLowerCase() === emailKey)) {
+          errors.push({
+            row: rowIndex,
+            message: `Ligne ${rowIndex} : un employé avec cet email existe déjà`
+          });
+          continue;
+        }
+
+        try {
+          const newEmployee = await Employee.create({
+            ...data,
+            created_by: req.user.id,
+            updated_by: req.user.id
+          });
+          created.push({ row: rowIndex, id: newEmployee.id, email: data.email_personnel });
+        } catch (err) {
+          errors.push({
+            row: rowIndex,
+            message: `Ligne ${rowIndex} : ${err.message || 'erreur création'}`
+          });
+        }
+      }
+
+      res.json({
+        success: errors.length === 0,
+        message:
+          created.length > 0
+            ? `${created.length} employé(s) créé(s)${errors.length ? `, ${errors.length} erreur(s)` : ''}`
+            : 'Aucun employé créé',
+        data: { created: created.length, errors }
+      });
+    } catch (error) {
+      console.error('Erreur import employés:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Erreur lors de l\'import Excel'
+      });
+    }
+  }
+);
 
 // GET /api/employees/:id - Récupérer un employé par ID
 router.get('/:id', authenticateToken, async (req, res) => {

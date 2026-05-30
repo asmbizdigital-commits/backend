@@ -1,3 +1,7 @@
+const ROLE_VERIFICATEUR_SYGREM = 'Verificateur Sygrem';
+const ROLE_CONTROLLEUR_SYGRAM = 'Controlleur Sygram';
+const LEGACY_CONTROLEUR_ACCENT = 'Contrôleur Sygram';
+
 function normalizeRole(role) {
   if (!role) return '';
   return String(role)
@@ -7,35 +11,45 @@ function normalizeRole(role) {
     .toLowerCase();
 }
 
-/**
- * Rôle contrôleur Sygram : variantes BDD (Contrôleur / Controlleur, accents).
- */
-function isRoleControleurSygram(role) {
-  const n = normalizeRole(role);
-  if (!n.includes('sygram')) return false;
-  return n.includes('controleur') || n.includes('controlleur');
+function isRoleVerificateurSygrem(role) {
+  if (!role) return false;
+  if (role === ROLE_VERIFICATEUR_SYGREM) return true;
+  if (role === LEGACY_CONTROLEUR_ACCENT) return true;
+  return normalizeRole(role) === 'verificateur sygrem';
 }
 
-/**
- * Rôle Directeur Opérations : accepte la variante avec/sans accent.
- */
+function isRoleControlleurSygram(role) {
+  if (!role) return false;
+  if (role === ROLE_CONTROLLEUR_SYGRAM) return true;
+  return normalizeRole(role) === 'controlleur sygram';
+}
+
+function isRoleExploitationControleDossiers(role) {
+  return isRoleVerificateurSygrem(role) || isRoleControlleurSygram(role);
+}
+
 function isRoleDirecteurOperations(role) {
-  const n = normalizeRole(role);
-  return n === 'directeur operations';
+  return normalizeRole(role) === 'directeur operations';
 }
 
-/**
- * Indique si le rôle d'un utilisateur correspond au rôle cible (égalité stricte,
- * sauf pour le contrôleur Sygram où les deux orthographes sont acceptées).
- */
 function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   if (!assigneeRole || !roleCible) return false;
-  if (isRoleControleurSygram(roleCible) && isRoleControleurSygram(assigneeRole)) return true;
+  if (roleCible === ROLE_VERIFICATEUR_SYGREM) {
+    return isRoleVerificateurSygrem(assigneeRole) || isRoleControlleurSygram(assigneeRole);
+  }
   return assigneeRole === roleCible;
 }
 
+/** @deprecated */
+const isRoleControleurSygram = isRoleExploitationControleDossiers;
+
 module.exports = {
+  ROLE_VERIFICATEUR_SYGREM,
+  ROLE_CONTROLLEUR_SYGRAM,
   normalizeRole,
+  isRoleVerificateurSygrem,
+  isRoleControlleurSygram,
+  isRoleExploitationControleDossiers,
   isRoleControleurSygram,
   isRoleDirecteurOperations,
   assigneeMatchesRoleCible

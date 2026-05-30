@@ -1,9 +1,9 @@
--- Assignation B/L pour le contrôle (contrôleur Sygram), miroir de tbl_assignations_bl.
+-- Assignation B/L pour le contrôle (Verificateur Sygrem), miroir de tbl_assignations_bl.
 CREATE TABLE IF NOT EXISTS `tbl_assignation_bl_controleur` (
   `id` int NOT NULL AUTO_INCREMENT,
   `connaissement_id` int NOT NULL,
   `assignee_id` int NOT NULL,
-  `role_cible` enum('Contrôleur Sygram') NOT NULL DEFAULT 'Contrôleur Sygram',
+  `role_cible` enum('Verificateur Sygrem') NOT NULL DEFAULT 'Verificateur Sygrem',
   `priorite` enum('Normale','Haute','Urgente') NOT NULL DEFAULT 'Normale',
   `date_limite` date DEFAULT NULL,
   `commentaire` text,

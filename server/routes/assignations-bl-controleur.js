@@ -12,10 +12,10 @@ const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const router = express.Router();
 router.use(authenticateToken);
 
-const ROLE_CIBLE = 'Contrôleur Sygram';
+const ROLE_CIBLE = 'Verificateur Sygrem';
 const CHECKLIST_CONTROLE = [
   { id: 1, text: 'Validation FERI et clôture', completed: false },
-  { id: 2, text: 'Contrôle conformité Sygram', completed: false }
+  { id: 2, text: 'Contrôle conformité Sygrem', completed: false }
 ];
 
 const generateNumeroTache = async () => {
@@ -42,7 +42,7 @@ function requireCreateurAssignControleur(req, res, next) {
   if (req.user.role === 'Administrateur' || isRoleDirecteurOperations(req.user.role)) return next();
   return res.status(403).json({
     success: false,
-    message: 'Seuls un Administrateur ou un Directeur Opérations peuvent assigner un dossier à un contrôleur.'
+    message: 'Seuls un Administrateur ou un Directeur Opérations peuvent assigner un dossier à un Verificateur Sygrem.'
   });
 }
 
@@ -183,7 +183,7 @@ router.post(
         return res.status(400).json({
           success: false,
           message:
-            'Seuls les dossiers déclarés (avec numéro de dossier) peuvent être assignés au contrôle Sygram.',
+            'Seuls les dossiers déclarés (avec numéro de dossier) peuvent être assignés au contrôle Sygrem.',
           invalid_connaissement_ids: invalid.map((c) => c.id),
           invalid_bl_document_ids: invalid.map((c) => c.id)
         });

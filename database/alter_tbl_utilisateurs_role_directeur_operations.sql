@@ -10,7 +10,7 @@ ALTER TABLE `tbl_utilisateurs` MODIFY COLUMN `role` ENUM(
   'Administrateur',
   'Auditeur',
   'Booker',
-  'Contrôleur Sygram',
+  'Verificateur Sygrem',
   'Directeur Opérations',
   'Guichetier',
   'Patron',

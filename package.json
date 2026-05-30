@@ -29,7 +29,8 @@
     "migrate:liaisons-caissiers": "node scripts/migrate-liaisons-caissiers.js",
     "migrate:asmproclient": "node scripts/run-migrate-asmproclient.js",
     "migrate:assignations-connaissements": "node scripts/run-migrate-assignations-fk-connaissements.js",
-    "migrate:user-role-call-center": "node scripts/run-migrate-user-role-call-center.js"
+    "migrate:user-role-call-center": "node scripts/run-migrate-user-role-call-center.js",
+    "migrate:role-verificateur-sygrem": "node scripts/run-migrate-role-verificateur-sygrem.js"
   },
   "keywords": [
     "hotel",

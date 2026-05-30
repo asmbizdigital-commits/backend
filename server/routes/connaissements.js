@@ -5,7 +5,7 @@ const Connaissement = require('../models/Connaissement');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { isRoleControleurSygram } = require('../utils/userRoles');
+const { isRoleExploitationControleDossiers } = require('../utils/userRoles');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
 const {
   loadFicheAsmDetail,
@@ -109,7 +109,7 @@ router.get(
         where.isExported = false;
       }
 
-      if (isRoleControleurSygram(req.user.role)) {
+      if (isRoleExploitationControleDossiers(req.user.role)) {
         const assignRows = await AssignationBLControleur.findAll({
           where: {
             assigneeId: req.user.id,
@@ -451,10 +451,10 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
     });
 
     if (body.is_validated === true) {
-      if (!isRoleControleurSygram(req.user.role)) {
+      if (!isRoleExploitationControleDossiers(req.user.role)) {
         return res.status(403).json({
           success: false,
-          message: 'Seul un contrôleur Sygram peut valider et clôturer un dossier (FERI).'
+          message: 'Seul un Verificateur Sygrem ou Controlleur Sygram peut valider et clôturer un dossier (FERI).'
         });
       }
       if (!assignationControleur) {
@@ -472,10 +472,10 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
     }
 
     if (touchesControleChamps) {
-      if (!isRoleControleurSygram(req.user.role)) {
+      if (!isRoleExploitationControleDossiers(req.user.role)) {
         return res.status(403).json({
           success: false,
-          message: 'Seul un contrôleur Sygram assigné à ce dossier peut enregistrer ce contrôle.'
+          message: 'Seul un Verificateur Sygrem ou Controlleur Sygram assigné peut enregistrer ce contrôle.'
         });
       }
       if (!assignationControleur) {

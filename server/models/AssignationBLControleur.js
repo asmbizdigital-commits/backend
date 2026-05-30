@@ -21,9 +21,9 @@ const AssignationBLControleur = sequelize.define(
       references: { model: 'tbl_utilisateurs', key: 'id' }
     },
     roleCible: {
-      type: DataTypes.ENUM('Contrôleur Sygram'),
+      type: DataTypes.ENUM('Verificateur Sygrem'),
       allowNull: false,
-      defaultValue: 'Contrôleur Sygram',
+      defaultValue: 'Verificateur Sygrem',
       field: 'role_cible'
     },
     priorite: {

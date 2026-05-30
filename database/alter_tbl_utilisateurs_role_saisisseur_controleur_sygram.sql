@@ -1,4 +1,4 @@
--- Étend l'ENUM `role` : Saisisseur, Contrôleur Sygram.
+-- Étend l'ENUM `role` : Saisisseur, Verificateur Sygrem.
 -- Avant exécution : SHOW COLUMNS FROM tbl_utilisateurs LIKE 'role';
 -- Si d'autres valeurs existent déjà en production, ajoutez-les à cette liste (MySQL exige toutes les valeurs à chaque MODIFY).
 
@@ -10,7 +10,7 @@ ALTER TABLE `tbl_utilisateurs` MODIFY COLUMN `role` ENUM(
   'Administrateur',
   'Auditeur',
   'Booker',
-  'Contrôleur Sygram',
+  'Verificateur Sygrem',
   'Guichetier',
   'Patron',
   'Saisisseur',

@@ -9,6 +9,35 @@ const router = express.Router();
 // Apply authentication to all routes
 router.use(authenticateToken);
 
+// GET /api/departements/public-options — liste pour sélecteurs (soumissions besoins, etc.)
+router.get('/public-options', async (req, res) => {
+  try {
+    const { Op } = require('sequelize');
+    const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 10000);
+    const search = req.query.search;
+
+    const whereClause = { statut: 'Actif' };
+    if (search) {
+      whereClause[Op.or] = [
+        { nom: { [Op.like]: `%${search}%` } },
+        { code: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    const departements = await Departement.findAll({
+      attributes: ['id', 'nom', 'code', 'couleur', 'statut'],
+      where: whereClause,
+      order: [['nom', 'ASC']],
+      limit
+    });
+
+    res.json({ success: true, data: departements });
+  } catch (error) {
+    console.error('Error fetching public department options:', error);
+    res.status(500).json({ success: false, message: 'Erreur lors du chargement des départements' });
+  }
+});
+
 // GET /api/departements - Get all departments with filtering
 router.get('/', [
   query('statut').optional().isIn(['Actif', 'Inactif', 'En restructuration']),

@@ -409,8 +409,8 @@ SoumissionBesoins.hasMany(SoumissionBesoinsLigne, { foreignKey: 'soumission_beso
 SoumissionBesoinsLigne.belongsTo(SoumissionBesoins, { foreignKey: 'soumission_besoins_id', as: 'soumission' });
 SoumissionBesoinsLigne.belongsTo(Inventaire, { foreignKey: 'inventaire_id', as: 'inventaire' });
 Inventaire.hasMany(SoumissionBesoinsLigne, { foreignKey: 'inventaire_id', as: 'SoumissionBesoinsLignes' });
-SoumissionBesoinsLigne.belongsTo(Chambre, { foreignKey: 'chambre_id', as: 'chambre' });
-Chambre.hasMany(SoumissionBesoinsLigne, { foreignKey: 'chambre_id', as: 'SoumissionBesoinsLignes' });
+SoumissionBesoinsLigne.belongsTo(Departement, { foreignKey: 'departement_id', as: 'departement' });
+Departement.hasMany(SoumissionBesoinsLigne, { foreignKey: 'departement_id', as: 'SoumissionBesoinsLignes' });
 
 // Circuit de validation des dépenses
 CircuitDepense.belongsTo(SoumissionBesoins, { foreignKey: 'soumission_besoins_id', as: 'soumission' });

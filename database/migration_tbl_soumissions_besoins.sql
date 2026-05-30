@@ -22,13 +22,13 @@ CREATE TABLE IF NOT EXISTS tbl_soumissions_besoins (
   CONSTRAINT fk_soumissions_besoins_superviseur FOREIGN KEY (superviseur_id) REFERENCES tbl_utilisateurs (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Table des lignes (matériel : inventaire + chambre + qté ; fonds : libellé + montant ou article)
+-- Table des lignes (matériel : inventaire + département + qté ; fonds : libellé + montant ou article)
 CREATE TABLE IF NOT EXISTS tbl_soumissions_besoins_lignes (
   id INT NOT NULL AUTO_INCREMENT,
   soumission_besoins_id INT NOT NULL,
   type_ligne ENUM('article', 'libelle') NOT NULL DEFAULT 'libelle',
   inventaire_id INT NULL,
-  chambre_id INT NULL,
+  departement_id INT NULL,
   libelle VARCHAR(255) NULL,
   montant DECIMAL(14, 2) NULL,
   quantite INT NULL DEFAULT 1,
@@ -40,5 +40,5 @@ CREATE TABLE IF NOT EXISTS tbl_soumissions_besoins_lignes (
   KEY idx_sb_lignes_soumission (soumission_besoins_id),
   CONSTRAINT fk_sb_lignes_soumission FOREIGN KEY (soumission_besoins_id) REFERENCES tbl_soumissions_besoins (id) ON DELETE CASCADE,
   CONSTRAINT fk_sb_lignes_inventaire FOREIGN KEY (inventaire_id) REFERENCES tbl_inventaire (id) ON DELETE SET NULL,
-  CONSTRAINT fk_sb_lignes_chambre FOREIGN KEY (chambre_id) REFERENCES tbl_chambres (id) ON DELETE SET NULL
+  CONSTRAINT fk_sb_lignes_departement FOREIGN KEY (departement_id) REFERENCES tbl_departements (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

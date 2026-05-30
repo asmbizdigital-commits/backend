@@ -22,10 +22,10 @@ const SoumissionBesoinsLigne = sequelize.define('SoumissionBesoinsLigne', {
     allowNull: true,
     references: { model: 'tbl_inventaire', key: 'id' }
   },
-  chambre_id: {
+  departement_id: {
     type: DataTypes.INTEGER,
     allowNull: true,
-    references: { model: 'tbl_chambres', key: 'id' }
+    references: { model: 'tbl_departements', key: 'id' }
   },
   libelle: {
     type: DataTypes.STRING(255),

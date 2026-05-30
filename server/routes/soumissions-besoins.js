@@ -3,7 +3,7 @@ const path = require('path');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
-const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Chambre, DemandeFonds, LigneDemandeFonds, CircuitDepense } = require('../models');
+const { SoumissionBesoins, SoumissionBesoinsLigne, User, Inventaire, Departement, DemandeFonds, LigneDemandeFonds, CircuitDepense } = require('../models');
 const Notification = require('../models/Notification');
 const { Op } = require('sequelize');
 const { CloudinaryService } = require('../services/cloudinaryService');
@@ -80,7 +80,7 @@ router.get('/', async (req, res) => {
           as: 'lignes',
           include: [
             { model: Inventaire, as: 'inventaire', attributes: ['id', 'nom', 'code_produit'] },
-            { model: Chambre, as: 'chambre', attributes: ['id', 'numero', 'type'] }
+            { model: Departement, as: 'departement', attributes: ['id', 'nom', 'code', 'couleur'] }
           ]
         }
       ],
@@ -111,7 +111,7 @@ router.get('/:id', async (req, res) => {
           as: 'lignes',
           include: [
             { model: Inventaire, as: 'inventaire', attributes: ['id', 'nom', 'code_produit', 'prix_unitaire'] },
-            { model: Chambre, as: 'chambre', attributes: ['id', 'numero', 'type'] }
+            { model: Departement, as: 'departement', attributes: ['id', 'nom', 'code', 'couleur'] }
           ]
         }
       ]
@@ -191,7 +191,7 @@ router.post('/', uploadPieces.fields([
           soumission_besoins_id: s.id,
           type_ligne: 'article',
           inventaire_id: l.inventaire_id || null,
-          chambre_id: l.chambre_id || null,
+          departement_id: l.departement_id || null,
           quantite: l.quantite_demandee || l.quantite || 1
         };
       }
@@ -256,7 +256,7 @@ router.post('/', uploadPieces.fields([
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
         { model: User, as: 'superviseur', attributes: ['id', 'nom', 'prenom', 'role'] },
-        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Chambre, as: 'chambre' }] }
+        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Departement, as: 'departement' }] }
       ]
     });
 
@@ -320,7 +320,7 @@ router.put('/:id', [
             soumission_besoins_id: s.id,
             type_ligne: 'article',
             inventaire_id: l.inventaire_id || null,
-            chambre_id: l.chambre_id || null,
+            departement_id: l.departement_id || null,
             quantite: l.quantite_demandee || l.quantite || 1
           };
         }
@@ -356,7 +356,7 @@ router.put('/:id', [
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
         { model: User, as: 'superviseur', attributes: ['id', 'nom', 'prenom', 'role'] },
-        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Chambre, as: 'chambre' }] }
+        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Departement, as: 'departement' }] }
       ]
     });
     res.json({ success: true, data: result });
@@ -481,7 +481,7 @@ router.put('/:id/status', [
       include: [
         { model: User, as: 'demandeur', attributes: ['id', 'nom', 'prenom'] },
         { model: User, as: 'superviseur', attributes: ['id', 'nom', 'prenom', 'role'] },
-        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Chambre, as: 'chambre' }] }
+        { model: SoumissionBesoinsLigne, as: 'lignes', include: [{ model: Inventaire, as: 'inventaire' }, { model: Departement, as: 'departement' }] }
       ]
     });
     res.json({ success: true, data: result });

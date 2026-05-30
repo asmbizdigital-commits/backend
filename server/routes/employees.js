@@ -9,7 +9,8 @@ const {
   parseWorkbookBuffer,
   validateRow,
   buildTemplateBuffer,
-  isInstructionOrExampleRow
+  isInstructionOrExampleRow,
+  isSparseRow
 } = require('../services/employeeExcelImport');
 const fs = require('fs');
 const path = require('path');
@@ -190,6 +191,7 @@ router.post(
 
       for (const { data, rowIndex } of dataRows) {
         if (isInstructionOrExampleRow(data)) continue;
+        if (isSparseRow(data)) continue;
 
         const hasAny =
           data.nom_famille ||

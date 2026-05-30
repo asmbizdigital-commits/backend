@@ -33,6 +33,11 @@ const CycleVieArticle = require('../models/CycleVieArticle');
 const Buanderie = require('../models/Buanderie');
 const PaiementPartiel = require('../models/PaiementPartiel');
 const RappelPaiement = require('../models/RappelPaiement');
+const {
+  MODULE_RESET_REGISTRY,
+  resolveModuleKeyFromPath,
+  listModules
+} = require('../config/moduleResetRegistry');
 
 class ResetService {
   constructor() {
@@ -181,7 +186,9 @@ class ResetService {
     
     let whereClause = {};
     if (keepAdmin) {
-      whereClause = { role: { [sequelize.Sequelize.Op.ne]: 'Admin' } };
+      whereClause = {
+        role: { [sequelize.Sequelize.Op.notIn]: ['Administrateur', 'Admin'] }
+      };
     }
     
     const userCount = await User.count({ where: whereClause });
@@ -613,6 +620,54 @@ class ResetService {
       console.error(`❌ Erreur lors de la suppression des rappels de paiement:`, error.message);
       throw error;
     }
+  }
+
+  /**
+   * Réinitialisation atomique d'un module (menu) — transaction Sequelize
+   */
+  async resetModule(moduleKey, options = {}) {
+    const def = MODULE_RESET_REGISTRY[moduleKey];
+    if (!def) {
+      return { success: false, error: `Module « ${moduleKey} » inconnu` };
+    }
+
+    const t = await sequelize.transaction();
+    try {
+      await def.run({ sequelize, transaction: t, options });
+      await t.commit();
+      return {
+        success: true,
+        module: moduleKey,
+        label: def.label,
+        message: `Module « ${def.label} » réinitialisé avec succès`
+      };
+    } catch (error) {
+      await t.rollback();
+      console.error(`❌ resetModule(${moduleKey}):`, error);
+      return {
+        success: false,
+        module: moduleKey,
+        error: error.message
+      };
+    }
+  }
+
+  resolveModuleKeyFromPath(pathname) {
+    return resolveModuleKeyFromPath(pathname);
+  }
+
+  listModules() {
+    return listModules();
+  }
+
+  getModuleDefinition(moduleKey) {
+    const def = MODULE_RESET_REGISTRY[moduleKey];
+    if (!def) return null;
+    return {
+      key: moduleKey,
+      label: def.label,
+      description: def.description || ''
+    };
   }
 
   /**

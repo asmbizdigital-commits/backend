@@ -1,6 +1,6 @@
 /**
  * Routes pour la réinitialisation des tables
- * Permet aux Web Masters de réinitialiser les données
+ * Réinitialisation des données — Administrateur (par module) ou Web Master (tables legacy)
  */
 
 const express = require('express');
@@ -10,14 +10,106 @@ const resetService = require('../services/resetService');
 
 const router = express.Router();
 
+const RESET_ADMIN_ROLES = ['Administrateur', 'Web Master'];
+
 // Appliquer l'authentification à toutes les routes
 router.use(authenticateToken);
 
-// Seuls les Web Masters peuvent accéder aux routes de reset
-router.use(requireRole(['Web Master']));
+router.use(requireRole(RESET_ADMIN_ROLES));
+
+// GET /api/reset/modules — modules menu (réinitialisation atomique)
+router.get('/modules', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      modules: resetService.listModules()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// GET /api/reset/modules/resolve?path=/departements
+router.get('/modules/resolve', async (req, res) => {
+  try {
+    const pathname = req.query.path || '';
+    const moduleKey = resetService.resolveModuleKeyFromPath(pathname);
+    if (!moduleKey) {
+      return res.json({ success: true, moduleKey: null, module: null });
+    }
+    res.json({
+      success: true,
+      moduleKey,
+      module: resetService.getModuleDefinition(moduleKey)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/reset/module/:moduleKey — réinitialisation atomique (Administrateur)
+router.post('/module/:moduleKey', [
+  body('confirm').isBoolean().withMessage('La confirmation est requise')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    if (req.user?.role !== 'Administrateur') {
+      return res.status(403).json({
+        success: false,
+        message: 'Seul un Administrateur peut réinitialiser un module depuis le menu.'
+      });
+    }
+
+    const { moduleKey } = req.params;
+    const { confirm } = req.body;
+
+    if (!confirm) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vous devez confirmer la réinitialisation'
+      });
+    }
+
+    const def = resetService.getModuleDefinition(moduleKey);
+    if (!def) {
+      return res.status(400).json({
+        success: false,
+        message: `Module « ${moduleKey} » non supporté`
+      });
+    }
+
+    const result = await resetService.resetModule(moduleKey);
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: result.message,
+        module: moduleKey,
+        label: result.label
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: result.error || 'Échec de la réinitialisation'
+    });
+  } catch (error) {
+    console.error('reset module:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Routes legacy (modal header) — Web Master uniquement
+router.use('/table', requireRole(['Web Master']));
+router.use('/all', requireRole(['Web Master']));
 
 // GET /api/reset/tables - Obtenir la liste des tables disponibles
-router.get('/tables', async (req, res) => {
+router.get('/tables', requireRole(['Web Master']), async (req, res) => {
   try {
     const tables = resetService.getAvailableTables();
     
@@ -172,7 +264,7 @@ router.post('/all', [
 });
 
 // GET /api/reset/status - Obtenir le statut des tables
-router.get('/status', async (req, res) => {
+router.get('/status', requireRole(['Web Master']), async (req, res) => {
   try {
     const tables = resetService.getAvailableTables();
     

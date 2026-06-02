@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult, query } = require('express-validator');
-const { Op, fn, col, where } = require('sequelize');
+const { Op } = require('sequelize');
 const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
@@ -77,15 +77,12 @@ router.get('/', [
         .filter(Boolean);
 
       if (terms.length > 0) {
-        whereClause[Op.and] = terms.map((term) => {
-          const lowerTermLike = `%${term.toLowerCase()}%`;
-          return {
+        whereClause[Op.and] = terms.map((term) => ({
           [Op.or]: [
-            where(fn('LOWER', col('nom')), { [Op.like]: lowerTermLike }),
-            where(fn('LOWER', col('prenom')), { [Op.like]: lowerTermLike })
+            { nom: { [Op.like]: `%${term}%` } },
+            { prenom: { [Op.like]: `%${term}%` } }
           ]
-          };
-        });
+        }));
       }
     }
 

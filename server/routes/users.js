@@ -1,10 +1,32 @@
 const express = require('express');
 const { body, validationResult, query } = require('express-validator');
-const { Op } = require('sequelize');
+const { Op, fn, col, where } = require('sequelize');
 const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+/** Département et sous-département facultatifs (null si absents). */
+function normalizeUserDepartmentFields(userData) {
+  if (userData.departement_id === '' || userData.departement_id === undefined) {
+    userData.departement_id = null;
+  } else if (userData.departement_id != null) {
+    const dep = parseInt(String(userData.departement_id), 10);
+    userData.departement_id = Number.isNaN(dep) ? null : dep;
+  }
+
+  if (userData.sous_departement_id === '' || userData.sous_departement_id === undefined) {
+    userData.sous_departement_id = null;
+  } else if (userData.sous_departement_id != null) {
+    const sous = parseInt(String(userData.sous_departement_id), 10);
+    userData.sous_departement_id = Number.isNaN(sous) ? null : sous;
+  }
+
+  if (!userData.departement_id) {
+    userData.sous_departement_id = null;
+  }
+  return userData;
+}
 
 // Apply authentication to all routes
 router.use(authenticateToken);
@@ -12,6 +34,7 @@ router.use(authenticateToken);
 // GET /api/users - Get all users (temporarily allowing all authenticated users for testing)
 router.get('/', [
   // requireRole('Administrateur'), // Temporarily commented for testing
+  query('nom').optional().isString().trim().isLength({ max: 100 }),
   query('role').optional().isIn([
     'Agent Chambre', 'Superviseur Resto', 'Superviseur Buanderie', 
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 
@@ -37,7 +60,7 @@ router.get('/', [
       });
     }
 
-    const { role, actif, departement_id, sous_departement_id, page = 1, limit = 20 } = req.query;
+    const { nom, role, actif, departement_id, sous_departement_id, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
     // Build where clause
@@ -46,6 +69,25 @@ router.get('/', [
     if (actif !== undefined) whereClause.actif = actif === 'true';
     if (departement_id) whereClause.departement_id = parseInt(departement_id);
     if (sous_departement_id) whereClause.sous_departement_id = parseInt(sous_departement_id);
+    if (nom && nom.trim()) {
+      const terms = nom
+        .trim()
+        .split(/\s+/)
+        .map((term) => term.trim())
+        .filter(Boolean);
+
+      if (terms.length > 0) {
+        whereClause[Op.and] = terms.map((term) => {
+          const lowerTermLike = `%${term.toLowerCase()}%`;
+          return {
+          [Op.or]: [
+            where(fn('LOWER', col('nom')), { [Op.like]: lowerTermLike }),
+            where(fn('LOWER', col('prenom')), { [Op.like]: lowerTermLike })
+          ]
+          };
+        });
+      }
+    }
 
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
@@ -280,7 +322,7 @@ router.post('/', [
       });
     }
 
-    const userData = req.body;
+    const userData = normalizeUserDepartmentFields({ ...req.body });
     
     // Check if email already exists
     const existingUser = await User.findOne({ 
@@ -372,7 +414,7 @@ router.put('/:id', [
     }
 
     const { id } = req.params;
-    const userData = req.body;
+    const userData = normalizeUserDepartmentFields({ ...req.body });
 
     // Check permissions
     if (parseInt(id) !== req.user.id && !req.user.hasPermission('Administrateur')) {

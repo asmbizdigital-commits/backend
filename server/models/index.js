@@ -269,6 +269,12 @@ Departement.hasMany(User, { foreignKey: 'departement_id', as: 'Utilisateurs' });
 User.belongsTo(SousDepartement, { foreignKey: 'sous_departement_id', as: 'SousDepartement' });
 SousDepartement.hasMany(User, { foreignKey: 'sous_departement_id', as: 'Utilisateurs' });
 
+User.belongsTo(DirectionProvinciale, { foreignKey: 'direction_provinciale_id', as: 'DirectionProvinciale' });
+DirectionProvinciale.hasMany(User, { foreignKey: 'direction_provinciale_id', as: 'Utilisateurs' });
+
+User.belongsTo(BureauInternational, { foreignKey: 'bureau_international_id', as: 'BureauInternational' });
+BureauInternational.hasMany(User, { foreignKey: 'bureau_international_id', as: 'Utilisateurs' });
+
 Departement.hasMany(SousDepartement, { foreignKey: 'departement_id', as: 'SousDepartements' });
 SousDepartement.belongsTo(Departement, { foreignKey: 'departement_id', as: 'Departement' });
 

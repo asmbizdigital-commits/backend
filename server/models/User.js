@@ -98,6 +98,26 @@ const User = sequelize.define('User', {
       key: 'id'
     }
   },
+  zone: {
+    type: DataTypes.STRING(30),
+    allowNull: true
+  },
+  direction_provinciale_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'tbl_directions_provinciales',
+      key: 'id'
+    }
+  },
+  bureau_international_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'tbl_bureaux_internationaux',
+      key: 'id'
+    }
+  },
   actif: {
     type: DataTypes.BOOLEAN,
     defaultValue: true

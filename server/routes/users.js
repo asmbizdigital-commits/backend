@@ -6,7 +6,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-/** Département et sous-département facultatifs (null si absents). */
+/** Département, sous-département, zone et rattachements bureaux facultatifs (null si absents). */
 function normalizeUserDepartmentFields(userData) {
   if (userData.departement_id === '' || userData.departement_id === undefined) {
     userData.departement_id = null;
@@ -25,8 +25,29 @@ function normalizeUserDepartmentFields(userData) {
   if (!userData.departement_id) {
     userData.sous_departement_id = null;
   }
+
+  if (userData.zone === '' || userData.zone === undefined) {
+    userData.zone = null;
+  }
+
+  if (userData.direction_provinciale_id === '' || userData.direction_provinciale_id === undefined) {
+    userData.direction_provinciale_id = null;
+  } else if (userData.direction_provinciale_id != null) {
+    const dir = parseInt(String(userData.direction_provinciale_id), 10);
+    userData.direction_provinciale_id = Number.isNaN(dir) ? null : dir;
+  }
+
+  if (userData.bureau_international_id === '' || userData.bureau_international_id === undefined) {
+    userData.bureau_international_id = null;
+  } else if (userData.bureau_international_id != null) {
+    const bur = parseInt(String(userData.bureau_international_id), 10);
+    userData.bureau_international_id = Number.isNaN(bur) ? null : bur;
+  }
+
   return userData;
 }
+
+const USER_ZONE_VALUES = ['europe', 'asie', 'afrique', 'moyenOrient'];
 
 // Apply authentication to all routes
 router.use(authenticateToken);
@@ -99,6 +120,16 @@ router.get('/', [
           model: require('../models/SousDepartement'),
           as: 'SousDepartement',
           attributes: ['id', 'nom', 'code', 'couleur']
+        },
+        {
+          model: require('../models/DirectionProvinciale'),
+          as: 'DirectionProvinciale',
+          attributes: ['id', 'nom', 'code', 'province']
+        },
+        {
+          model: require('../models/BureauInternational'),
+          as: 'BureauInternational',
+          attributes: ['id', 'nom', 'code', 'pays', 'ville']
         }
       ],
       limit: parseInt(limit),
@@ -305,6 +336,25 @@ router.post('/', [
       if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
     }
     throw new Error('sous_departement_id doit être un entier positif ou vide');
+  }),
+  body('zone').optional({ nullable: true }).isIn(USER_ZONE_VALUES),
+  body('direction_provinciale_id').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1) return true;
+    if (typeof value === 'string') {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
+    }
+    throw new Error('direction_provinciale_id doit être un entier positif ou vide');
+  }),
+  body('bureau_international_id').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1) return true;
+    if (typeof value === 'string') {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
+    }
+    throw new Error('bureau_international_id doit être un entier positif ou vide');
   })
 ], async (req, res) => {
   try {
@@ -345,6 +395,9 @@ router.post('/', [
       telephone: user.telephone,
       departement_id: user.departement_id,
       sous_departement_id: user.sous_departement_id,
+      zone: user.zone,
+      direction_provinciale_id: user.direction_provinciale_id,
+      bureau_international_id: user.bureau_international_id,
       actif: user.actif,
       derniere_connexion: user.derniere_connexion
     };
@@ -398,6 +451,25 @@ router.put('/:id', [
       if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
     }
     throw new Error('sous_departement_id doit être un entier positif ou vide');
+  }),
+  body('zone').optional({ nullable: true }).isIn(USER_ZONE_VALUES),
+  body('direction_provinciale_id').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1) return true;
+    if (typeof value === 'string') {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
+    }
+    throw new Error('direction_provinciale_id doit être un entier positif ou vide');
+  }),
+  body('bureau_international_id').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 1) return true;
+    if (typeof value === 'string') {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && Number.isInteger(num) && num >= 1) return true;
+    }
+    throw new Error('bureau_international_id doit être un entier positif ou vide');
   })
 ], async (req, res) => {
   try {
@@ -464,6 +536,9 @@ router.put('/:id', [
       telephone: user.telephone,
       departement_id: user.departement_id,
       sous_departement_id: user.sous_departement_id,
+      zone: user.zone,
+      direction_provinciale_id: user.direction_provinciale_id,
+      bureau_international_id: user.bureau_international_id,
       actif: user.actif,
       derniere_connexion: user.derniere_connexion
     };

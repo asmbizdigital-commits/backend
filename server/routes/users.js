@@ -42,7 +42,7 @@ router.get('/', [
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
     'call_center', 'Saisisseur', 'Verificateur Sygrem', 'Controlleur Sygram',
-    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
+    'Gestionnaire des Plaintes', 'Manager Bureau', 'Directeur Opérations', 'Directeur Operations'
   ]),
   query('actif').optional().isBoolean(),
   query('departement_id').optional().isInt({ min: 1 }),
@@ -283,7 +283,7 @@ router.post('/', [
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
     'call_center', 'Saisisseur', 'Verificateur Sygrem', 'Controlleur Sygram',
-    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
+    'Gestionnaire des Plaintes', 'Manager Bureau', 'Directeur Opérations', 'Directeur Operations'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('departement_id').optional().custom((value) => {
@@ -375,7 +375,7 @@ router.put('/:id', [
     'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
     'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
     'call_center', 'Saisisseur', 'Verificateur Sygrem', 'Controlleur Sygram',
-    'Gestionnaire des Plaintes', 'Directeur Opérations', 'Directeur Operations'
+    'Gestionnaire des Plaintes', 'Manager Bureau', 'Directeur Opérations', 'Directeur Operations'
   ]),
   body('telephone').optional().isLength({ max: 20 }),
   body('actif').optional().isBoolean(),

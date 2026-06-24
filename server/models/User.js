@@ -68,6 +68,7 @@ const User = sequelize.define('User', {
       'Verificateur Sygrem',
       'Controlleur Sygram',
       'Gestionnaire des Plaintes',
+      'Manager Bureau',
       'Directeur Opérations',
       'Directeur Operations'
     ),
@@ -142,6 +143,7 @@ User.prototype.hasPermission = function(requiredRole) {
     'Verificateur Sygrem': 2,
     'Controlleur Sygram': 2,
     'Gestionnaire des Plaintes': 2,
+    'Manager Bureau': 4,
     'Agent': 2,
     'call_center': 2,
     'Web Master': 3,

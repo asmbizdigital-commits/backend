@@ -6,6 +6,21 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+const USER_PROFILE_INCLUDES = [
+  {
+    model: require('../models/DirectionProvinciale'),
+    as: 'DirectionProvinciale',
+    attributes: ['id', 'nom', 'code', 'province'],
+    required: false
+  },
+  {
+    model: require('../models/BureauInternational'),
+    as: 'BureauInternational',
+    attributes: ['id', 'nom', 'code', 'pays', 'ville'],
+    required: false
+  }
+];
+
 /** Département, sous-département, zone et rattachements bureaux facultatifs (null si absents). */
 function normalizeUserDepartmentFields(userData) {
   if (userData.departement_id === '' || userData.departement_id === undefined) {
@@ -279,7 +294,8 @@ router.get('/:id', async (req, res) => {
     }
 
     const user = await User.findByPk(id, {
-      attributes: { exclude: ['mot_de_passe'] }
+      attributes: { exclude: ['mot_de_passe'] },
+      include: USER_PROFILE_INCLUDES
     });
 
     if (!user) {

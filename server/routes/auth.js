@@ -5,6 +5,47 @@ const { authenticateToken, generateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+const USER_GEO_INCLUDES = [
+  {
+    model: require('../models/DirectionProvinciale'),
+    as: 'DirectionProvinciale',
+    attributes: ['id', 'nom', 'code', 'province'],
+    required: false
+  },
+  {
+    model: require('../models/BureauInternational'),
+    as: 'BureauInternational',
+    attributes: ['id', 'nom', 'code', 'pays', 'ville'],
+    required: false
+  }
+];
+
+function serializeAuthUser(user) {
+  const j = typeof user?.toJSON === 'function' ? user.toJSON() : { ...user };
+  return {
+    id: j.id,
+    nom: j.nom,
+    prenom: j.prenom,
+    email: j.email,
+    role: j.role,
+    telephone: j.telephone,
+    actif: j.actif,
+    derniere_connexion: j.derniere_connexion,
+    zone: j.zone ?? null,
+    direction_provinciale_id: j.direction_provinciale_id ?? null,
+    bureau_international_id: j.bureau_international_id ?? null,
+    DirectionProvinciale: j.DirectionProvinciale ?? null,
+    BureauInternational: j.BureauInternational ?? null
+  };
+}
+
+async function loadUserForAuth(userId) {
+  return User.findByPk(userId, {
+    attributes: { exclude: ['mot_de_passe'] },
+    include: USER_GEO_INCLUDES
+  });
+}
+
 // POST /api/auth/login
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
@@ -52,17 +93,10 @@ router.post('/login', [
     // Generate token
     const token = generateToken(user.id);
 
+    const userWithGeo = await loadUserForAuth(user.id);
+
     // Return user data (without password) and token
-    const userData = {
-      id: user.id,
-      nom: user.nom,
-      prenom: user.prenom,
-      email: user.email,
-      role: user.role,
-      telephone: user.telephone,
-      actif: user.actif,
-      derniere_connexion: user.derniere_connexion
-    };
+    const userData = serializeAuthUser(userWithGeo || user);
 
     res.json({
       message: 'Connexion réussie',
@@ -100,17 +134,8 @@ router.post('/logout', authenticateToken, async (req, res) => {
 // GET /api/auth/me
 router.get('/me', authenticateToken, async (req, res) => {
   try {
-    // User is already attached to req by authenticateToken middleware
-    const userData = {
-      id: req.user.id,
-      nom: req.user.nom,
-      prenom: req.user.prenom,
-      email: req.user.email,
-      role: req.user.role,
-      telephone: req.user.telephone,
-      actif: req.user.actif,
-      derniere_connexion: req.user.derniere_connexion
-    };
+    const userWithGeo = await loadUserForAuth(req.user.id);
+    const userData = serializeAuthUser(userWithGeo || req.user);
 
     res.json({
       user: userData

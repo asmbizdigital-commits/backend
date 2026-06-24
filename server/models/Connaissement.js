@@ -34,6 +34,24 @@ const Connaissement = sequelize.define(
     hsCodeIndicated: { type: DataTypes.STRING(20), field: 'hs_code_indicated' },
     clientNom: { type: DataTypes.STRING(255), field: 'client_nom' },
     zoneNom: { type: DataTypes.STRING(255), field: 'zone_nom' },
+    zoneConnaissement: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'zone_connaissement',
+      references: { model: 'zones', key: 'id' }
+    },
+    directionConnaissement: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'direction_connaissement',
+      references: { model: 'tbl_directions_provinciales', key: 'id' }
+    },
+    bureauConnaissement: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'bureau_connaissement',
+      references: { model: 'tbl_bureaux_internationaux', key: 'id' }
+    },
     dateEmail: { type: DataTypes.DATE, field: 'date_email' },
     adresseMail: { type: DataTypes.STRING(255), field: 'adresse_mail' },
     numeroDossier: { type: DataTypes.STRING(255), field: 'numero_dossier' },

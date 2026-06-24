@@ -65,6 +65,34 @@ const DEFAULT_LIGNE_CONN = {
   placeOfDelivery: '-'
 };
 
+const CONN_GEO_INCLUDES = [
+  {
+    model: require('../models/Zone'),
+    as: 'Zone',
+    attributes: ['id', 'code', 'nom'],
+    required: false
+  },
+  {
+    model: require('../models/DirectionProvinciale'),
+    as: 'DirectionProvinciale',
+    attributes: ['id', 'nom', 'code', 'province'],
+    required: false
+  },
+  {
+    model: require('../models/BureauInternational'),
+    as: 'BureauInternational',
+    attributes: ['id', 'nom', 'code', 'ville', 'pays'],
+    required: false
+  }
+];
+
+function parseOptionalFk(value) {
+  if (value === undefined) return undefined;
+  if (value === '' || value === null) return null;
+  const n = parseInt(String(value), 10);
+  return Number.isNaN(n) || n < 1 ? null : n;
+}
+
 function parseConnPk(idParam) {
   const n = parseInt(String(idParam ?? '').trim(), 10);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -132,6 +160,7 @@ router.get(
 
       const rows = await Connaissement.findAll({
         where,
+        include: CONN_GEO_INCLUDES,
         order: [['created_at', 'DESC']],
         limit: parseInt(limit, 10)
       });
@@ -260,6 +289,11 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       isControlledByController: Boolean(body.is_controlled_by_controller),
       clientNom: body.client_nom ?? null,
       zoneNom: body.zone_nom ?? null,
+      zoneConnaissement: parseOptionalFk(body.zone_connaissement ?? body.zoneConnaissement),
+      directionConnaissement: parseOptionalFk(
+        body.direction_connaissement ?? body.directionConnaissement
+      ),
+      bureauConnaissement: parseOptionalFk(body.bureau_connaissement ?? body.bureauConnaissement),
       adresseMail: body.adresse_mail ?? null,
       dateEmail: body.date_email ?? null
     });
@@ -607,11 +641,23 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       isControlledByController:
         body.is_controlled_by_controller !== undefined
           ? Boolean(body.is_controlled_by_controller)
-          : doc.isControlledByController
+          : doc.isControlledByController,
+      zoneConnaissement:
+        body.zone_connaissement !== undefined || body.zoneConnaissement !== undefined
+          ? parseOptionalFk(body.zone_connaissement ?? body.zoneConnaissement)
+          : doc.zoneConnaissement,
+      directionConnaissement:
+        body.direction_connaissement !== undefined || body.directionConnaissement !== undefined
+          ? parseOptionalFk(body.direction_connaissement ?? body.directionConnaissement)
+          : doc.directionConnaissement,
+      bureauConnaissement:
+        body.bureau_connaissement !== undefined || body.bureauConnaissement !== undefined
+          ? parseOptionalFk(body.bureau_connaissement ?? body.bureauConnaissement)
+          : doc.bureauConnaissement
     });
 
     emitConnaissementsChanged(req);
-    await doc.reload();
+    await doc.reload({ include: CONN_GEO_INCLUDES });
     return res.json({
       success: true,
       document: formatConnaissementForClient(doc),

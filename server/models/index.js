@@ -84,6 +84,7 @@ const SoumissionBesoinsLigne = require('./SoumissionBesoinsLigne');
 const CircuitDepense = require('./CircuitDepense');
 const DirectionProvinciale = require('./DirectionProvinciale');
 const BureauInternational = require('./BureauInternational');
+const Zone = require('./Zone');
 const Connaissement = require('./Connaissement');
 const AssignationBL = require('./AssignationBL');
 const AssignationBLControleur = require('./AssignationBLControleur');
@@ -855,6 +856,27 @@ AssignationBLControleur.belongsTo(User, { foreignKey: 'assigneParId', as: 'assig
 TaskPro.hasMany(AssignationBLControleur, { foreignKey: 'taskProId', as: 'assignationsBLControleur' });
 AssignationBLControleur.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
 
+Connaissement.belongsTo(Zone, { foreignKey: 'zone_connaissement', as: 'Zone' });
+Zone.hasMany(Connaissement, { foreignKey: 'zone_connaissement', as: 'Connaissements' });
+
+Connaissement.belongsTo(DirectionProvinciale, {
+  foreignKey: 'direction_connaissement',
+  as: 'DirectionProvinciale'
+});
+DirectionProvinciale.hasMany(Connaissement, {
+  foreignKey: 'direction_connaissement',
+  as: 'Connaissements'
+});
+
+Connaissement.belongsTo(BureauInternational, {
+  foreignKey: 'bureau_connaissement',
+  as: 'BureauInternational'
+});
+BureauInternational.hasMany(Connaissement, {
+  foreignKey: 'bureau_connaissement',
+  as: 'Connaissements'
+});
+
 // Alert associations removed
 
 module.exports = {
@@ -938,6 +960,7 @@ module.exports = {
   CircuitDepense,
   DirectionProvinciale,
   BureauInternational,
+  Zone,
   Connaissement,
   AssignationBL,
   AssignationBLControleur,

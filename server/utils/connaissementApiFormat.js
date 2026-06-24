@@ -53,6 +53,15 @@ function formatConnaissementForClient(row) {
     rawText: null,
     createdAt,
     numeroDossier: j.numeroDossier,
+    zoneConnaissement: j.zoneConnaissement ?? j.zone_connaissement ?? null,
+    zone_connaissement: j.zoneConnaissement ?? j.zone_connaissement ?? null,
+    directionConnaissement: j.directionConnaissement ?? j.direction_connaissement ?? null,
+    direction_connaissement: j.directionConnaissement ?? j.direction_connaissement ?? null,
+    bureauConnaissement: j.bureauConnaissement ?? j.bureau_connaissement ?? null,
+    bureau_connaissement: j.bureauConnaissement ?? j.bureau_connaissement ?? null,
+    zoneLabel: j.Zone?.nom ?? j.zoneNom ?? null,
+    directionLabel: j.DirectionProvinciale?.nom ?? null,
+    bureauLabel: j.BureauInternational?.nom ?? null,
     /** nom de table métier pour le front */
     _sourceTable: 'connaissements'
   };

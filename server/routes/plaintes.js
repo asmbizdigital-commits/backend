@@ -8,14 +8,39 @@ const Plainte = require('../models/Plainte');
 const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const Client = require('../models/Client');
-const Chambre = require('../models/Chambre');
 const Departement = require('../models/Departement');
 const SousDepartement = require('../models/SousDepartement');
+const DirectionProvinciale = require('../models/DirectionProvinciale');
+const BureauInternational = require('../models/BureauInternational');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const CloudinaryImageService = require('../services/cloudinaryImageService');
 const imageService = new CloudinaryImageService();
 
 const router = express.Router();
+
+const PLAINTE_ZONE_VALUES = ['europe', 'asie', 'afrique', 'moyenOrient'];
+
+const PLAINTE_GEO_INCLUDES = [
+  {
+    model: DirectionProvinciale,
+    as: 'DirectionProvinciale',
+    attributes: ['id', 'nom', 'code', 'province'],
+    required: false
+  },
+  {
+    model: BureauInternational,
+    as: 'BureauInternational',
+    attributes: ['id', 'nom', 'code', 'pays', 'ville'],
+    required: false
+  }
+];
+
+function parseOptionalFk(value) {
+  if (value === undefined) return undefined;
+  if (value === '' || value === null) return null;
+  const n = parseInt(String(value), 10);
+  return Number.isNaN(n) || n < 1 ? null : n;
+}
 
 // Configure multer for file uploads
 const upload = multer({
@@ -60,7 +85,7 @@ router.get('/check-table', async (req, res) => {
       return res.status(404).json({
         error: 'Table not found',
         message: 'La table tbl_plaintes n\'existe pas dans la base de données',
-        solution: 'Exécutez la migration: mysql -u root -p hotel_beatrice < database/create_tbl_plaintes.sql',
+        solution: 'Exécutez : node backend/scripts/run-migrate-plaintes-geo.js',
         script: './database/migrate_plaintes.sh'
       });
     }
@@ -129,6 +154,9 @@ router.get('/', [
       categorie,
       departement_id,
       assignee_id,
+      zone,
+      direction_provinciale_id,
+      bureau_international_id,
       search,
       date_debut,
       date_fin
@@ -167,6 +195,24 @@ router.get('/', [
       const assigneeId = parseInt(assignee_id);
       if (!isNaN(assigneeId)) {
         whereClause.assignee_id = assigneeId;
+      }
+    }
+
+    if (zone) {
+      whereClause.zone = zone;
+    }
+
+    if (direction_provinciale_id) {
+      const dirId = parseInt(direction_provinciale_id, 10);
+      if (!isNaN(dirId)) {
+        whereClause.direction_provinciale_id = dirId;
+      }
+    }
+
+    if (bureau_international_id) {
+      const burId = parseInt(bureau_international_id, 10);
+      if (!isNaN(burId)) {
+        whereClause.bureau_international_id = burId;
       }
     }
 
@@ -213,11 +259,6 @@ router.get('/', [
           attributes: ['id', 'nom', 'prenom', 'email']
         },
         {
-          model: Chambre,
-          as: 'chambre',
-          attributes: ['id', 'numero', 'type']
-        },
-        {
           model: Departement,
           as: 'departement',
           attributes: ['id', 'nom', 'responsable_id']
@@ -226,7 +267,8 @@ router.get('/', [
           model: SousDepartement,
           as: 'sous_departement',
           attributes: ['id', 'nom', 'departement_id']
-        }
+        },
+        ...PLAINTE_GEO_INCLUDES
       ],
       limit: limitNum,
       offset: offset,
@@ -257,7 +299,7 @@ router.get('/', [
       return res.status(500).json({
         error: 'Table not found',
         message: 'La table tbl_plaintes n\'existe pas. Veuillez exécuter la migration de la base de données.',
-        details: 'Exécutez: mysql -u root -p hotel_beatrice < database/create_tbl_plaintes.sql'
+        details: 'Exécutez : node backend/scripts/run-migrate-plaintes-geo.js'
       });
     }
     res.status(500).json({
@@ -310,7 +352,7 @@ router.get('/stats', async (req, res) => {
       return res.status(500).json({ 
         error: 'Table not found',
         message: 'La table tbl_plaintes n\'existe pas. Veuillez exécuter la migration de la base de données.',
-        details: 'Exécutez: mysql -u root -p hotel_beatrice < database/create_tbl_plaintes.sql'
+        details: 'Exécutez : node backend/scripts/run-migrate-plaintes-geo.js'
       });
     }
     
@@ -345,11 +387,6 @@ router.get('/:id', async (req, res) => {
           attributes: ['id', 'nom', 'prenom', 'email']
         },
         {
-          model: Chambre,
-          as: 'chambre',
-          attributes: ['id', 'numero', 'type']
-        },
-        {
           model: Departement,
           as: 'departement',
           attributes: ['id', 'nom', 'responsable_id']
@@ -358,7 +395,8 @@ router.get('/:id', async (req, res) => {
           model: SousDepartement,
           as: 'sous_departement',
           attributes: ['id', 'nom', 'departement_id']
-        }
+        },
+        ...PLAINTE_GEO_INCLUDES
       ]
     });
 
@@ -379,7 +417,7 @@ router.get('/:id', async (req, res) => {
       return res.status(500).json({ 
         error: 'Table not found',
         message: 'La table tbl_plaintes n\'existe pas. Veuillez exécuter la migration de la base de données.',
-        details: 'Exécutez: mysql -u root -p hotel_beatrice < database/create_tbl_plaintes.sql'
+        details: 'Exécutez : node backend/scripts/run-migrate-plaintes-geo.js'
       });
     }
     
@@ -401,7 +439,19 @@ router.post('/', [
   body('priorite').isIn(['Basse', 'Normale', 'Haute', 'Urgente']),
   body('employe_id').optional().isInt(),
   body('departement_id').optional().isInt(),
-  body('chambre_id').optional().isInt(),
+  body('zone').optional({ nullable: true }).isIn(PLAINTE_ZONE_VALUES),
+  body('direction_provinciale_id').optional().custom((value) => {
+    if (value === '' || value === null || value === undefined) return true;
+    const n = parseInt(String(value), 10);
+    if (!Number.isNaN(n) && n >= 1) return true;
+    throw new Error('direction_provinciale_id invalide');
+  }),
+  body('bureau_international_id').optional().custom((value) => {
+    if (value === '' || value === null || value === undefined) return true;
+    const n = parseInt(String(value), 10);
+    if (!Number.isNaN(n) && n >= 1) return true;
+    throw new Error('bureau_international_id invalide');
+  }),
   body('date_incident').optional().isISO8601()
 ], async (req, res) => {
   try {
@@ -428,7 +478,9 @@ router.post('/', [
       plaignant_type,
       departement_id,
       sous_departement_id,
-      chambre_id,
+      zone,
+      direction_provinciale_id,
+      bureau_international_id,
       date_incident,
       date_limite,
       tags,
@@ -509,7 +561,9 @@ router.post('/', [
       plaignant_type: type_plainte === 'Externe' ? plaignant_type : null,
       departement_id: departement_id ? parseInt(departement_id) : null,
       sous_departement_id: sous_departement_id ? parseInt(sous_departement_id) : null,
-      chambre_id: chambre_id ? parseInt(chambre_id) : null,
+      zone: zone && PLAINTE_ZONE_VALUES.includes(zone) ? zone : null,
+      direction_provinciale_id: parseOptionalFk(direction_provinciale_id),
+      bureau_international_id: parseOptionalFk(bureau_international_id),
       rapporteur_id: req.user.id,
       date_incident: date_incident ? new Date(date_incident) : null,
       date_limite: date_limite ? new Date(date_limite) : null,
@@ -605,11 +659,23 @@ router.put('/:id', [
     }
 
     // Update complaint (only pass fields that exist on Plainte to avoid stripping)
-    const plainteFields = ['titre', 'description', 'statut', 'priorite', 'assignee_id', 'date_assignation', 'date_resolution', 'date_fermeture', 'employe_id', 'client_id', 'departement_id', 'sous_departement_id', 'chambre_id', 'date_incident', 'date_limite', 'notes_internes', 'confidentialite', 'categorie', 'type_plainte', 'plaignant_nom', 'plaignant_prenom', 'plaignant_email', 'plaignant_telephone', 'plaignant_type'];
+    const plainteFields = ['titre', 'description', 'statut', 'priorite', 'assignee_id', 'date_assignation', 'date_resolution', 'date_fermeture', 'employe_id', 'client_id', 'departement_id', 'sous_departement_id', 'zone', 'direction_provinciale_id', 'bureau_international_id', 'date_incident', 'date_limite', 'notes_internes', 'confidentialite', 'categorie', 'type_plainte', 'plaignant_nom', 'plaignant_prenom', 'plaignant_email', 'plaignant_telephone', 'plaignant_type'];
     const filteredUpdate = {};
     plainteFields.forEach(f => {
       if (updateData[f] !== undefined) filteredUpdate[f] = updateData[f];
     });
+    if (filteredUpdate.zone !== undefined) {
+      filteredUpdate.zone =
+        filteredUpdate.zone && PLAINTE_ZONE_VALUES.includes(filteredUpdate.zone)
+          ? filteredUpdate.zone
+          : null;
+    }
+    if (filteredUpdate.direction_provinciale_id !== undefined) {
+      filteredUpdate.direction_provinciale_id = parseOptionalFk(filteredUpdate.direction_provinciale_id);
+    }
+    if (filteredUpdate.bureau_international_id !== undefined) {
+      filteredUpdate.bureau_international_id = parseOptionalFk(filteredUpdate.bureau_international_id);
+    }
     await plainte.update(filteredUpdate);
 
     // Calculate duration if resolved

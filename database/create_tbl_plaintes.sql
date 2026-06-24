@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS `tbl_plaintes` (
   -- Informations de traitement
   `departement_id` INT(11) DEFAULT NULL COMMENT 'ID du département concerné',
   `sous_departement_id` INT(11) DEFAULT NULL COMMENT 'ID du sous-département concerné',
-  `chambre_id` INT(11) DEFAULT NULL COMMENT 'ID de la chambre concernée',
+  `zone` VARCHAR(30) DEFAULT NULL COMMENT 'Code zone géographique',
+  `direction_provinciale_id` INT(11) DEFAULT NULL COMMENT 'Direction provinciale concernée',
+  `bureau_international_id` INT(11) DEFAULT NULL COMMENT 'Bureau international concerné',
   `assignee_id` INT(11) DEFAULT NULL COMMENT 'ID de l\'utilisateur assigné au traitement',
   `rapporteur_id` INT(11) NOT NULL COMMENT 'ID de l\'utilisateur qui a rapporté la plainte',
   
@@ -73,7 +75,9 @@ CREATE TABLE IF NOT EXISTS `tbl_plaintes` (
   KEY `idx_assignee_id` (`assignee_id`),
   KEY `idx_rapporteur_id` (`rapporteur_id`),
   KEY `idx_departement_id` (`departement_id`),
-  KEY `idx_chambre_id` (`chambre_id`),
+  KEY `idx_zone` (`zone`),
+  KEY `idx_direction_provinciale_id` (`direction_provinciale_id`),
+  KEY `idx_bureau_international_id` (`bureau_international_id`),
   KEY `idx_date_creation` (`date_creation`),
   KEY `idx_date_incident` (`date_incident`),
   KEY `idx_plaignant_email` (`plaignant_email`),
@@ -83,7 +87,8 @@ CREATE TABLE IF NOT EXISTS `tbl_plaintes` (
   CONSTRAINT `fk_plaintes_rapporteur` FOREIGN KEY (`rapporteur_id`) REFERENCES `tbl_utilisateurs` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_plaintes_departement` FOREIGN KEY (`departement_id`) REFERENCES `tbl_departements` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_plaintes_sous_departement` FOREIGN KEY (`sous_departement_id`) REFERENCES `tbl_sous_departements` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
-  CONSTRAINT `fk_plaintes_chambre` FOREIGN KEY (`chambre_id`) REFERENCES `tbl_chambres` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+  CONSTRAINT `fk_plaintes_direction` FOREIGN KEY (`direction_provinciale_id`) REFERENCES `tbl_directions_provinciales` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_plaintes_bureau` FOREIGN KEY (`bureau_international_id`) REFERENCES `tbl_bureaux_internationaux` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
   
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Table des plaintes (internes et externes)';
 

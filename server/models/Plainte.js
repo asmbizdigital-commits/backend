@@ -107,11 +107,23 @@ const Plainte = sequelize.define('Plainte', {
       key: 'id'
     }
   },
-  chambre_id: {
+  zone: {
+    type: DataTypes.STRING(30),
+    allowNull: true
+  },
+  direction_provinciale_id: {
     type: DataTypes.INTEGER,
     allowNull: true,
     references: {
-      model: 'tbl_chambres',
+      model: 'tbl_directions_provinciales',
+      key: 'id'
+    }
+  },
+  bureau_international_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'tbl_bureaux_internationaux',
       key: 'id'
     }
   },
@@ -254,7 +266,9 @@ const Plainte = sequelize.define('Plainte', {
     { fields: ['assignee_id'] },
     { fields: ['rapporteur_id'] },
     { fields: ['departement_id'] },
-    { fields: ['chambre_id'] },
+    { fields: ['zone'] },
+    { fields: ['direction_provinciale_id'] },
+    { fields: ['bureau_international_id'] },
     { fields: ['date_creation'] },
     { fields: ['date_incident'] },
     { fields: ['plaignant_email'] }

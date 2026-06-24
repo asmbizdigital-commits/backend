@@ -107,9 +107,17 @@ Plainte.belongsTo(User, { foreignKey: 'assignee_id', as: 'assignee' });
 User.hasMany(Plainte, { foreignKey: 'employe_id', as: 'PlaintesEmploye' });
 Plainte.belongsTo(User, { foreignKey: 'employe_id', as: 'employe' });
 
-Plainte.belongsTo(Chambre, { foreignKey: 'chambre_id', as: 'chambre' });
 Plainte.belongsTo(Departement, { foreignKey: 'departement_id', as: 'departement' });
 Plainte.belongsTo(SousDepartement, { foreignKey: 'sous_departement_id', as: 'sous_departement' });
+
+Plainte.belongsTo(DirectionProvinciale, {
+  foreignKey: 'direction_provinciale_id',
+  as: 'DirectionProvinciale'
+});
+Plainte.belongsTo(BureauInternational, {
+  foreignKey: 'bureau_international_id',
+  as: 'BureauInternational'
+});
 
 // Associations pour TaskPro
 User.hasMany(TaskPro, { foreignKey: 'createur_id', as: 'TasksProCreateur' });

@@ -4,9 +4,14 @@ const { body, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const DemandeConge = require('../models/DemandeConge');
-const { User, Employe } = require('../models');
+const { User, Employe, EmployeUser } = require('../models');
 
 const TYPES_CONGE = ['conges_payes_annuels', 'maladie', 'maternite', 'paternite', 'sans_solde', 'deces_famille', 'mariage', 'autre'];
+const ROLES_VIEW_ALL_CONGES = ['Administrateur', 'Superviseur RH'];
+
+function canViewAllDemandesConges(role) {
+  return ROLES_VIEW_ALL_CONGES.includes(role);
+}
 
 // GET /api/demandes-conges - Liste des demandes
 router.get('/', authenticateToken, async (req, res) => {
@@ -24,8 +29,7 @@ router.get('/', authenticateToken, async (req, res) => {
       if (date_fin) where.date_debut[Op.lte] = date_fin;
     }
 
-    const canViewAll = ['Patron', 'Administrateur', 'Superviseur RH', 'Auditeur'].includes(req.user.role);
-    if (!canViewAll) {
+    if (!canViewAllDemandesConges(req.user.role)) {
       where.demandeur_id = req.user.id;
     }
 
@@ -65,8 +69,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const where = {};
-    const canViewAll = ['Patron', 'Administrateur', 'Superviseur RH', 'Auditeur'].includes(req.user.role);
-    if (!canViewAll) where.demandeur_id = req.user.id;
+    if (!canViewAllDemandesConges(req.user.role)) where.demandeur_id = req.user.id;
 
     const total = await DemandeConge.count({ where });
 
@@ -111,8 +114,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!demande) {
       return res.status(404).json({ success: false, message: 'Demande non trouvée' });
     }
-    const canViewAll = ['Patron', 'Administrateur', 'Superviseur RH', 'Auditeur'].includes(req.user.role);
-    if (!canViewAll && demande.demandeur_id !== req.user.id) {
+    if (!canViewAllDemandesConges(req.user.role) && demande.demandeur_id !== req.user.id) {
       return res.status(403).json({ success: false, message: 'Accès non autorisé' });
     }
     res.json({ success: true, data: demande });
@@ -145,6 +147,17 @@ router.post('/',
       const employe = await Employe.findByPk(req.body.employe_id);
       if (!employe) {
         return res.status(404).json({ success: false, message: 'Employé non trouvé' });
+      }
+
+      if (!canViewAllDemandesConges(req.user.role)) {
+        const liaison = await EmployeUser.findOne({ where: { user_id: req.user.id } });
+        const employeId = parseInt(req.body.employe_id, 10);
+        if (!liaison || liaison.employe_id !== employeId) {
+          return res.status(403).json({
+            success: false,
+            message: 'Vous ne pouvez soumettre une demande que pour votre fiche employé'
+          });
+        }
       }
 
       const payload = {
@@ -228,7 +241,7 @@ router.put('/:id',
 // PUT /api/demandes-conges/:id/status - Approuver / Rejeter (Superviseur RH, Patron, Admin)
 router.put('/:id/status',
   authenticateToken,
-  requireRole(['Superviseur RH', 'Patron', 'Administrateur']),
+  requireRole(ROLES_VIEW_ALL_CONGES),
   [
     body('statut').isIn(['approuve', 'rejete']).withMessage('Statut invalide'),
     body('commentaire_rh').optional().trim()

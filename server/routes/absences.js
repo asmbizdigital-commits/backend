@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const Absence = require('../models/Absence');
-const { Employe } = require('../models');
+const { Employe, EmployeUser } = require('../models');
+
+const ROLES_MANAGE_CONGES = ['Administrateur', 'Superviseur RH'];
 
 // GET /api/absences - Liste des absences (filtres: employe_id, date_debut, date_fin, type_absence)
 router.get('/', authenticateToken, async (req, res) => {
@@ -18,6 +20,18 @@ router.get('/', authenticateToken, async (req, res) => {
       where.date_absence = {};
       if (date_debut) where.date_absence[Op.gte] = date_debut;
       if (date_fin) where.date_absence[Op.lte] = date_fin;
+    }
+
+    if (!ROLES_MANAGE_CONGES.includes(req.user.role)) {
+      const liaison = await EmployeUser.findOne({ where: { user_id: req.user.id } });
+      if (!liaison) {
+        return res.json({
+          success: true,
+          data: [],
+          pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 }
+        });
+      }
+      where.employe_id = liaison.employe_id;
     }
 
     const { count, rows } = await Absence.findAndCountAll({
@@ -44,6 +58,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // POST /api/absences - Enregistrer une absence (RH / Admin)
 router.post('/',
   authenticateToken,
+  requireRole(ROLES_MANAGE_CONGES),
   [
     body('employe_id').isInt({ min: 1 }).withMessage('ID employé requis'),
     body('date_absence').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Date invalide (AAAA-MM-JJ)'),

@@ -10,6 +10,19 @@ const { CloudinaryService } = require('../services/cloudinaryService');
 
 const ROLES_SUPERVISEURS = ['Superviseur', 'Superviseur RH', 'Superviseur Technique', 'Superviseur Stock'];
 const ROLES_CIRCUIT_FULL = ['Patron', 'Administrateur', 'Superviseur Finance', 'Auditeur'];
+const ROLES_LECTURE_SEULE_SOUMISSIONS_BESOINS = ['Auditeur'];
+const ROLE_MANAGER_BUREAU = 'Manager Bureau';
+
+function canSoumettreBesoins(role) {
+  if (!role) return false;
+  if (role === ROLE_MANAGER_BUREAU) return true;
+  if (ROLES_LECTURE_SEULE_SOUMISSIONS_BESOINS.includes(role)) return false;
+  return true;
+}
+
+function isSuperviseurRole(role) {
+  return ROLES_SUPERVISEURS.includes(role);
+}
 
 const uploadPieces = multer({
   storage: multer.memoryStorage(),
@@ -60,8 +73,7 @@ router.get('/', async (req, res) => {
     if (statut) where.statut = statut;
     if (type) where.type = type;
     // Tous les utilisateurs voient leurs soumissions ; les superviseurs voient aussi celles dont ils sont destinataires
-    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
-    if (!isSuperviseur) {
+    if (!isSuperviseurRole(req.user.role)) {
       where.demandeur_id = req.user.id;
     } else {
       // Superviseur : voir ses soumissions + celles où il est superviseur ciblé
@@ -117,10 +129,9 @@ router.get('/:id', async (req, res) => {
       ]
     });
     if (!s) return res.status(404).json({ success: false, message: 'Soumission non trouvée' });
-    const isSuperviseur = ROLES_SUPERVISEURS.includes(req.user.role);
     const canAccessCircuit = ROLES_CIRCUIT_FULL.includes(req.user.role);
     const isDemandeur = s.demandeur_id === req.user.id;
-    const isSuperviseurCible = isSuperviseur && s.superviseur_id === req.user.id;
+    const isSuperviseurCible = isSuperviseurRole(req.user.role) && s.superviseur_id === req.user.id;
     if (!isDemandeur && !isSuperviseurCible && !canAccessCircuit) {
       return res.status(403).json({ success: false, message: 'Accès non autorisé' });
     }
@@ -142,6 +153,13 @@ router.post('/', uploadPieces.fields([
   body('lignes').notEmpty().withMessage('lignes requis')
 ], async (req, res) => {
   try {
+    if (!canSoumettreBesoins(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre rôle ne permet pas de soumettre des besoins'
+      });
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
@@ -300,6 +318,13 @@ router.put('/:id', [
   body('lignes').optional().isArray()
 ], async (req, res) => {
   try {
+    if (!canSoumettreBesoins(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre rôle ne permet pas de modifier des soumissions de besoins'
+      });
+    }
+
     const s = await SoumissionBesoins.findByPk(req.params.id);
     if (!s) return res.status(404).json({ success: false, message: 'Soumission non trouvée' });
     if (s.demandeur_id !== req.user.id) {
@@ -369,6 +394,13 @@ router.put('/:id', [
 // DELETE /api/soumissions-besoins/:id
 router.delete('/:id', async (req, res) => {
   try {
+    if (!canSoumettreBesoins(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre rôle ne permet pas de supprimer des soumissions de besoins'
+      });
+    }
+
     const s = await SoumissionBesoins.findByPk(req.params.id);
     if (!s) return res.status(404).json({ success: false, message: 'Soumission non trouvée' });
     if (s.demandeur_id !== req.user.id) {

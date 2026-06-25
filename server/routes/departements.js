@@ -6,9 +6,6 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Apply authentication to all routes
-router.use(authenticateToken);
-
 // GET /api/departements/public-options — liste pour sélecteurs (soumissions besoins, etc.)
 router.get('/public-options', async (req, res) => {
   try {
@@ -37,6 +34,9 @@ router.get('/public-options', async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur lors du chargement des départements' });
   }
 });
+
+// Apply authentication to all remaining routes
+router.use(authenticateToken);
 
 // GET /api/departements - Get all departments with filtering
 router.get('/', [

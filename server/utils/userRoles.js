@@ -1,5 +1,6 @@
 const ROLE_VERIFICATEUR_SYGREM = 'Verificateur Sygrem';
 const ROLE_CONTROLLEUR_SYGRAM = 'Controlleur Sygram';
+const ROLE_MANAGER_BUREAU = 'Manager Bureau';
 const LEGACY_CONTROLEUR_ACCENT = 'Contrôleur Sygram';
 
 function normalizeRole(role) {
@@ -32,6 +33,10 @@ function isRoleDirecteurOperations(role) {
   return normalizeRole(role) === 'directeur operations';
 }
 
+function isManagerBureauRole(role) {
+  return String(role || '').trim() === ROLE_MANAGER_BUREAU;
+}
+
 function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   if (!assigneeRole || !roleCible) return false;
   if (roleCible === ROLE_VERIFICATEUR_SYGREM) {
@@ -52,5 +57,6 @@ module.exports = {
   isRoleExploitationControleDossiers,
   isRoleControleurSygram,
   isRoleDirecteurOperations,
+  isManagerBureauRole,
   assigneeMatchesRoleCible
 };

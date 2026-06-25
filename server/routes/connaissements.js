@@ -5,7 +5,12 @@ const Connaissement = require('../models/Connaissement');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { isRoleExploitationControleDossiers } = require('../utils/userRoles');
+const { isRoleExploitationControleDossiers, isManagerBureauRole } = require('../utils/userRoles');
+const {
+  loadUserGeo,
+  buildManagerBureauConnaissementWhere,
+  managerBureauCanAccessConnaissement
+} = require('../utils/managerBureauConnaissementAccess');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
 const {
   loadFicheAsmDetail,
@@ -98,6 +103,31 @@ function parseConnPk(idParam) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+const CONN_ACCESS_ATTRS = ['id', 'zoneConnaissement', 'directionConnaissement', 'bureauConnaissement'];
+
+async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
+  if (!isManagerBureauRole(req.user?.role)) {
+    return { allowed: true, doc: typeof docOrPk === 'object' ? docOrPk : null };
+  }
+  const doc =
+    typeof docOrPk === 'object' && docOrPk !== null
+      ? docOrPk
+      : await Connaissement.findByPk(docOrPk, { attributes: CONN_ACCESS_ATTRS });
+  if (!doc) {
+    return { allowed: false, status: 404, message: 'Connaissement introuvable.' };
+  }
+  const userGeo = await loadUserGeo(req.user.id);
+  const allowed = await managerBureauCanAccessConnaissement(userGeo, doc);
+  if (!allowed) {
+    return {
+      allowed: false,
+      status: 403,
+      message: 'Accès non autorisé à ce connaissement (hors de votre zone / direction / bureau).'
+    };
+  }
+  return { allowed: true, doc };
+}
+
 /**
  * GET /api/connaissements (et alias /api/bl-documents)
  */
@@ -156,6 +186,14 @@ router.get(
         }
         where.id = { [Op.in]: ids };
         where.isValidated = true;
+      }
+
+      if (isManagerBureauRole(req.user.role)) {
+        const userGeo = await loadUserGeo(req.user.id);
+        const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
+        if (geoWhere) {
+          Object.assign(where, geoWhere);
+        }
       }
 
       const rows = await Connaissement.findAll({
@@ -329,6 +367,10 @@ router.get('/:id/fiche-detail', async (req, res) => {
     if (!pk) {
       return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
     }
+    const access = await ensureManagerBureauConnaissementAccess(req, pk);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
+    }
     const detail = await loadFicheAsmDetail(pk);
     if (!detail) {
       return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
@@ -351,6 +393,10 @@ router.get('/:id/unified-extract', async (req, res) => {
     const pk = parseConnPk(req.params.id);
     if (!pk) {
       return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const access = await ensureManagerBureauConnaissementAccess(req, pk);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
     }
     const extract = await loadUnifiedExtract(pk);
     if (!extract) {
@@ -375,6 +421,10 @@ router.post('/:id/ingest-unified', express.json({ limit: '2mb' }), async (req, r
     if (!pk) {
       return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
     }
+    const access = await ensureManagerBureauConnaissementAccess(req, pk);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
+    }
     const detail = await ingestUnifiedExtract(pk, req.body || {});
     emitConnaissementsChanged(req);
     return res.json({ success: true, detail });
@@ -398,6 +448,10 @@ router.patch('/:id/article-items', express.json({ limit: '512kb' }), async (req,
     const pk = parseConnPk(req.params.id);
     if (!pk) {
       return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
+    }
+    const access = await ensureManagerBureauConnaissementAccess(req, pk);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
     }
     const items = req.body?.items ?? req.body?.commercial_invoice?.items;
     if (!Array.isArray(items) || items.length === 0) {
@@ -437,6 +491,10 @@ router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, re
     if (!pk) {
       return res.status(400).json({ success: false, message: 'Identifiant de connaissement invalide.' });
     }
+    const access = await ensureManagerBureauConnaissementAccess(req, pk);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
+    }
     const detail = await saveFicheAsmDetail(pk, req.body || {});
     emitConnaissementsChanged(req);
     return res.json({ success: true, detail });
@@ -468,6 +526,11 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
     const doc = await Connaissement.findByPk(pk);
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Connaissement introuvable.' });
+    }
+
+    const access = await ensureManagerBureauConnaissementAccess(req, doc);
+    if (!access.allowed) {
+      return res.status(access.status).json({ success: false, message: access.message });
     }
 
     const body = req.body || {};

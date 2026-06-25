@@ -42,6 +42,80 @@ function parseOptionalFk(value) {
   return Number.isNaN(n) || n < 1 ? null : n;
 }
 
+const ROLE_GESTIONNAIRE_PLAINTES = 'Gestionnaire des Plaintes';
+const ROLE_ADMINISTRATEUR = 'Administrateur';
+const ROLE_MANAGER_BUREAU = 'Manager Bureau';
+
+function canViewAllPlaintes(role) {
+  return role === ROLE_ADMINISTRATEUR || role === ROLE_GESTIONNAIRE_PLAINTES;
+}
+
+function canTreatPlaintes(role) {
+  return role === ROLE_ADMINISTRATEUR || role === ROLE_GESTIONNAIRE_PLAINTES;
+}
+
+function isManagerBureauRole(role) {
+  return role === ROLE_MANAGER_BUREAU;
+}
+
+async function getUserWithGeo(userId) {
+  return User.findByPk(userId, {
+    attributes: ['id', 'role', 'direction_provinciale_id', 'bureau_international_id', 'zone']
+  });
+}
+
+function buildPlainteAccessWhere(user) {
+  if (!user) return { rapporteur_id: -1 };
+  if (canViewAllPlaintes(user.role)) return {};
+
+  if (isManagerBureauRole(user.role)) {
+    const orConditions = [{ rapporteur_id: user.id }];
+    const geoFilter = {};
+    if (user.direction_provinciale_id) {
+      geoFilter.direction_provinciale_id = user.direction_provinciale_id;
+    }
+    if (user.bureau_international_id) {
+      geoFilter.bureau_international_id = user.bureau_international_id;
+    }
+    if (Object.keys(geoFilter).length > 0) {
+      orConditions.push(geoFilter);
+    }
+    return { [Op.or]: orConditions };
+  }
+
+  return { rapporteur_id: user.id };
+}
+
+function mergeWhereWithAccess(baseWhere, accessWhere) {
+  if (!accessWhere || Object.keys(accessWhere).length === 0) return baseWhere;
+  return { [Op.and]: [baseWhere, accessWhere] };
+}
+
+async function plainteIsAccessible(req, plainte) {
+  const user = await getUserWithGeo(req.user.id);
+  if (!plainte || !user) return false;
+  if (canViewAllPlaintes(user.role)) return true;
+  if (plainte.rapporteur_id === user.id) return true;
+  if (isManagerBureauRole(user.role)) {
+    const dirOk = !user.direction_provinciale_id
+      || plainte.direction_provinciale_id === user.direction_provinciale_id;
+    const burOk = !user.bureau_international_id
+      || plainte.bureau_international_id === user.bureau_international_id;
+    return dirOk && burOk;
+  }
+  return false;
+}
+
+function stripTreatmentFieldsForDemandeur(updateData, canTreat) {
+  if (canTreat) return updateData;
+  const restricted = ['assignee_id', 'statut', 'notes_internes', 'commentaire_statut'];
+  const next = { ...updateData };
+  restricted.forEach((key) => {
+    delete next[key];
+  });
+  return next;
+}
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -239,8 +313,12 @@ router.get('/', [
       ];
     }
 
+    const userWithGeo = await getUserWithGeo(req.user.id);
+    const accessWhere = buildPlainteAccessWhere(userWithGeo);
+    const finalWhere = mergeWhereWithAccess(whereClause, accessWhere);
+
     const { count, rows: plaintes } = await Plainte.findAndCountAll({
-      where: whereClause,
+      where: finalWhere,
       attributes: { exclude: ['client_id'] },
       include: [
         {
@@ -313,32 +391,37 @@ router.get('/', [
 // GET /api/plaintes/stats - Get statistics
 router.get('/stats', async (req, res) => {
   try {
+    const userWithGeo = await getUserWithGeo(req.user.id);
+    const accessWhere = buildPlainteAccessWhere(userWithGeo);
+
     const stats = {
-      total: await Plainte.count(),
+      total: await Plainte.count({ where: accessWhere }),
       par_type: {
-        interne: await Plainte.count({ where: { type_plainte: 'Interne' } }),
-        externe: await Plainte.count({ where: { type_plainte: 'Externe' } })
+        interne: await Plainte.count({ where: mergeWhereWithAccess({ type_plainte: 'Interne' }, accessWhere) }),
+        externe: await Plainte.count({ where: mergeWhereWithAccess({ type_plainte: 'Externe' }, accessWhere) })
       },
       par_statut: {
-        nouvelle: await Plainte.count({ where: { statut: 'Nouvelle' } }),
-        en_cours: await Plainte.count({ where: { statut: 'En cours' } }),
-        en_attente: await Plainte.count({ where: { statut: 'En attente' } }),
-        resolue: await Plainte.count({ where: { statut: 'Résolue' } }),
-        fermee: await Plainte.count({ where: { statut: 'Fermée' } }),
-        rejetee: await Plainte.count({ where: { statut: 'Rejetée' } })
+        nouvelle: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'Nouvelle' }, accessWhere) }),
+        en_cours: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'En cours' }, accessWhere) }),
+        en_attente: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'En attente' }, accessWhere) }),
+        resolue: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'Résolue' }, accessWhere) }),
+        fermee: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'Fermée' }, accessWhere) }),
+        rejetee: await Plainte.count({ where: mergeWhereWithAccess({ statut: 'Rejetée' }, accessWhere) })
       },
       par_priorite: {
-        basse: await Plainte.count({ where: { priorite: 'Basse' } }),
-        normale: await Plainte.count({ where: { priorite: 'Normale' } }),
-        haute: await Plainte.count({ where: { priorite: 'Haute' } }),
-        urgente: await Plainte.count({ where: { priorite: 'Urgente' } })
+        basse: await Plainte.count({ where: mergeWhereWithAccess({ priorite: 'Basse' }, accessWhere) }),
+        normale: await Plainte.count({ where: mergeWhereWithAccess({ priorite: 'Normale' }, accessWhere) }),
+        haute: await Plainte.count({ where: mergeWhereWithAccess({ priorite: 'Haute' }, accessWhere) }),
+        urgente: await Plainte.count({ where: mergeWhereWithAccess({ priorite: 'Urgente' }, accessWhere) })
       },
       par_categorie: {}
     };
 
     const categories = ['Service', 'Qualité', 'Sécurité', 'Ressources Humaines', 'Financier', 'Technique', 'Autre'];
     for (const cat of categories) {
-      stats.par_categorie[cat.toLowerCase().replace(' ', '_')] = await Plainte.count({ where: { categorie: cat } });
+      stats.par_categorie[cat.toLowerCase().replace(' ', '_')] = await Plainte.count({
+        where: mergeWhereWithAccess({ categorie: cat }, accessWhere)
+      });
     }
 
     res.json({ stats });
@@ -404,6 +487,14 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ 
         error: 'Complaint not found',
         message: 'Plainte non trouvée'
+      });
+    }
+
+    const accessible = await plainteIsAccessible(req, plainte);
+    if (!accessible) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès non autorisé à cette plainte'
       });
     }
 
@@ -496,6 +587,14 @@ router.post('/', [
       });
     }
 
+    const userTreats = canTreatPlaintes(req.user.role);
+    if (type_plainte === 'Interne' && !userTreats && parseInt(employe_id, 10) !== req.user.id) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Vous ne pouvez enregistrer une plainte interne que pour votre compte'
+      });
+    }
+
     let plaignantNom = plaignant_nom;
     let plaignantPrenom = plaignant_prenom;
     let plaignantEmail = plaignant_email;
@@ -565,11 +664,14 @@ router.post('/', [
       direction_provinciale_id: parseOptionalFk(direction_provinciale_id),
       bureau_international_id: parseOptionalFk(bureau_international_id),
       rapporteur_id: req.user.id,
+      assignee_id: userTreats && req.body.assignee_id
+        ? parseInt(req.body.assignee_id, 10) || null
+        : null,
       date_incident: date_incident ? new Date(date_incident) : null,
       date_limite: date_limite ? new Date(date_limite) : null,
       tags: tags ? (Array.isArray(tags) ? tags : JSON.parse(tags)) : null,
       fichiers_joints: fichiers_joints.length > 0 ? fichiers_joints : null,
-      notes_internes: notes_internes || null,
+      notes_internes: userTreats ? (notes_internes || null) : null,
       confidentialite: confidentialite || 'Interne'
     });
 
@@ -632,9 +734,19 @@ router.put('/:id', [
       });
     }
 
+    const userTreats = canTreatPlaintes(req.user.role);
+    const isOwner = plainte.rapporteur_id === req.user.id;
+    const canUpdate = userTreats || (isOwner && plainte.statut === 'Nouvelle');
+    if (!canUpdate) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Vous ne pouvez pas modifier cette plainte'
+      });
+    }
+
     const oldStatus = plainte.statut;
     const previousAssigneeId = plainte.assignee_id ? parseInt(plainte.assignee_id, 10) : null;
-    const updateData = { ...req.body };
+    let updateData = stripTreatmentFieldsForDemandeur({ ...req.body }, userTreats);
 
     // Normalize assignee_id from form (string to int)
     if (updateData.assignee_id !== undefined && updateData.assignee_id !== '') {
@@ -746,6 +858,16 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+    const userTreats = canTreatPlaintes(req.user.role);
+    const isOwner = plainte.rapporteur_id === req.user.id;
+    const canDelete = userTreats || (isOwner && plainte.statut === 'Nouvelle');
+    if (!canDelete) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Vous ne pouvez pas supprimer cette plainte'
+      });
+    }
+
     await plainte.destroy();
 
     res.json({ 
@@ -766,6 +888,13 @@ router.patch('/:id/assign', [
   body('assignee_id').isInt().withMessage('ID assigné invalide')
 ], async (req, res) => {
   try {
+    if (!canTreatPlaintes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Seul le gestionnaire des plaintes peut assigner une plainte'
+      });
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 
@@ -814,6 +943,13 @@ router.patch('/:id/resolve', [
   body('satisfaction_client').optional().isIn(['Très satisfait', 'Satisfait', 'Neutre', 'Insatisfait', 'Très insatisfait'])
 ], async (req, res) => {
   try {
+    if (!canTreatPlaintes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Seul le gestionnaire des plaintes peut résoudre une plainte'
+      });
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ 

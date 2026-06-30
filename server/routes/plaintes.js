@@ -6,6 +6,8 @@ const { Op } = require('sequelize');
 const { sequelize } = require('../config/database');
 const Plainte = require('../models/Plainte');
 const TaskPro = require('../models/TaskPro');
+const TicketPro = require('../models/TicketPro');
+const PlainteTicketTask = require('../models/PlainteTicketTask');
 const User = require('../models/User');
 const Client = require('../models/Client');
 const Departement = require('../models/Departement');
@@ -201,6 +203,43 @@ const generateNumeroPlainte = async () => {
   return numero;
 };
 
+async function attachTicketsAssocies(plaintes) {
+  if (!plaintes.length) return plaintes.map((p) => ({ ...p.toJSON(), ticket_associe: null }));
+
+  const plainteIds = plaintes.map((p) => p.id);
+  const tickets = await TicketPro.findAll({
+    where: { plainte_id: { [Op.in]: plainteIds } },
+    attributes: ['id', 'plainte_id', 'numero_ticket', 'statut', 'titre', 'created_at'],
+    include: [{
+      model: PlainteTicketTask,
+      as: 'plainteTicketTask',
+      attributes: ['task_pro_id'],
+      required: false
+    }],
+    order: [['created_at', 'DESC']]
+  });
+
+  const ticketByPlainteId = {};
+  for (const ticket of tickets) {
+    const pid = ticket.plainte_id;
+    if (!ticketByPlainteId[pid]) {
+      const liaison = ticket.plainteTicketTask;
+      ticketByPlainteId[pid] = {
+        id: ticket.id,
+        numero_ticket: ticket.numero_ticket,
+        statut: ticket.statut,
+        titre: ticket.titre,
+        task_pro_id: liaison?.task_pro_id ?? null
+      };
+    }
+  }
+
+  return plaintes.map((p) => ({
+    ...p.toJSON(),
+    ticket_associe: ticketByPlainteId[p.id] || null
+  }));
+}
+
 // GET /api/plaintes - Get all complaints with filters and pagination
 router.get('/', [
   query('page').optional().isInt({ min: 1 }),
@@ -354,7 +393,7 @@ router.get('/', [
     });
 
     res.json({
-      plaintes: plaintes.map(p => p.toJSON()),
+      plaintes: await attachTicketsAssocies(plaintes),
       totalItems: count,
       totalPages: Math.ceil(count / limitNum),
       currentPage: pageNum,

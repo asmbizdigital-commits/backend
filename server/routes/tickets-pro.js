@@ -406,4 +406,59 @@ router.get('/plainte/:plainteId', async (req, res) => {
   }
 });
 
+// GET /api/tickets-pro/:id — détail d'un ticket
+router.get('/:id', async (req, res) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId || Number.isNaN(ticketId)) {
+      return res.status(400).json({ message: 'Identifiant de ticket invalide' });
+    }
+
+    const ticket = await TicketPro.findByPk(ticketId, {
+      include: [
+        { model: Plainte, as: 'plainte', attributes: ['id', 'numero_plainte', 'titre', 'statut'] },
+        { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom', 'email'] },
+        { model: User, as: 'assignee', attributes: ['id', 'nom', 'prenom', 'email'] },
+        {
+          model: PlainteTicketTask,
+          as: 'plainteTicketTask',
+          attributes: ['id', 'plainte_id', 'task_pro_id', 'created_at'],
+          include: [{
+            model: TaskPro,
+            as: 'taskPro',
+            attributes: ['id', 'numero_tache', 'titre', 'statut', 'priorite', 'checklist', 'progression']
+          }]
+        }
+      ]
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket introuvable' });
+    }
+
+    const plainte = await Plainte.findByPk(ticket.plainte_id);
+    const user = await getUserWithGeo(req.user.id);
+    if (!(await plainteIsAccessible(user, plainte))) {
+      return res.status(403).json({ message: 'Accès refusé à ce ticket' });
+    }
+
+    const observerIds = ticket.observateurs || [];
+    let observateursUsers = [];
+    if (observerIds.length) {
+      observateursUsers = await User.findAll({
+        where: { id: { [Op.in]: observerIds } },
+        attributes: ['id', 'nom', 'prenom', 'email']
+      });
+    }
+
+    const ticketJson = ticket.toJSON();
+    ticketJson.observateursUsers = observateursUsers;
+
+    return res.json({ ticket: ticketJson });
+  } catch (error) {
+    console.error('GET /tickets-pro/:id error:', error);
+    return res.status(500).json({ message: 'Erreur lors du chargement du ticket' });
+  }
+});
+
 module.exports = router;

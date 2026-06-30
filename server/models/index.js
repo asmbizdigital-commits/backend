@@ -56,6 +56,7 @@ const Conversation = require('./Conversation')(sequelize);
 const Message = require('./Message')(sequelize);
 const Plainte = require('./Plainte');
 const TaskPro = require('./TaskPro');
+const TicketPro = require('./TicketPro');
 const CommentaireTask = require('./CommentaireTask');
 const File = require('./File');
 const Folder = require('./Folder');
@@ -115,6 +116,25 @@ Plainte.belongsTo(DirectionProvinciale, {
   as: 'DirectionProvinciale'
 });
 Plainte.belongsTo(BureauInternational, {
+  foreignKey: 'bureau_international_id',
+  as: 'BureauInternational'
+});
+
+// Associations pour TicketPro (tickets issus de plaintes)
+Plainte.hasMany(TicketPro, { foreignKey: 'plainte_id', as: 'ticketsPro' });
+TicketPro.belongsTo(Plainte, { foreignKey: 'plainte_id', as: 'plainte' });
+
+User.hasMany(TicketPro, { foreignKey: 'createur_id', as: 'TicketsProCreateur' });
+TicketPro.belongsTo(User, { foreignKey: 'createur_id', as: 'createur' });
+
+User.hasMany(TicketPro, { foreignKey: 'assignee_id', as: 'TicketsProAssignee' });
+TicketPro.belongsTo(User, { foreignKey: 'assignee_id', as: 'assignee' });
+
+TicketPro.belongsTo(DirectionProvinciale, {
+  foreignKey: 'direction_provinciale_id',
+  as: 'DirectionProvinciale'
+});
+TicketPro.belongsTo(BureauInternational, {
   foreignKey: 'bureau_international_id',
   as: 'BureauInternational'
 });
@@ -943,6 +963,7 @@ module.exports = {
   Message,
   Plainte,
   TaskPro,
+  TicketPro,
   CommentaireTask,
   File,
   Folder,

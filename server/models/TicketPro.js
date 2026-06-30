@@ -105,6 +105,17 @@ const TicketPro = sequelize.define('TicketPro', {
     allowNull: true,
     references: { model: 'tbl_utilisateurs', key: 'id' }
   },
+  observateurs: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const value = this.getDataValue('observateurs');
+      return value ? JSON.parse(value) : [];
+    },
+    set(value) {
+      this.setDataValue('observateurs', value && value.length ? JSON.stringify(value) : null);
+    }
+  },
   notes_ouverture: {
     type: DataTypes.TEXT,
     allowNull: true

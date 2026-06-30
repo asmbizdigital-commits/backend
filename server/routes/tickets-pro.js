@@ -103,6 +103,7 @@ function buildPrefillFromPlainte(plainte) {
       titre: `Ticket — ${plainte.numero_plainte} : ${plainte.titre}`,
       priorite: plainte.priorite || 'Normale',
       assignee_id: plainte.assignee_id || null,
+      observateurs: [],
       notes_ouverture: '',
       date_echeance: plainte.date_limite || null
     }
@@ -120,6 +121,32 @@ const generateNumeroTicket = async () => {
   });
   return `TICKET-${year}-${String(count + 1).padStart(4, '0')}`;
 };
+
+function parseObservateurIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  const ids = [...new Set(
+    raw
+      .map((v) => parseInt(String(v), 10))
+      .filter((id) => !Number.isNaN(id) && id > 0)
+  )];
+  return ids;
+}
+
+async function validateObservateurs(observateurIds) {
+  if (!observateurIds.length) return [];
+  const found = await User.findAll({
+    where: { id: { [Op.in]: observateurIds } },
+    attributes: ['id']
+  });
+  const foundIds = new Set(found.map((u) => u.id));
+  const invalid = observateurIds.filter((id) => !foundIds.has(id));
+  if (invalid.length) {
+    const err = new Error('Observateurs introuvables');
+    err.invalidIds = invalid;
+    throw err;
+  }
+  return observateurIds;
+}
 
 router.use(authenticateToken);
 
@@ -154,6 +181,8 @@ router.post('/', [
   body('titre').trim().isLength({ min: 3, max: 255 }).withMessage('Titre du ticket requis (3-255 caractères)'),
   body('priorite').optional().isIn(['Basse', 'Normale', 'Haute', 'Urgente']),
   body('assignee_id').optional({ nullable: true }).custom((v) => v === null || v === '' || Number.isInteger(Number(v))),
+  body('observateurs').optional().isArray().withMessage('observateurs doit être un tableau'),
+  body('observateurs.*').optional().isInt({ min: 1 }).withMessage('Identifiant observateur invalide'),
   body('notes_ouverture').optional({ nullable: true }).isString(),
   body('date_echeance').optional({ nullable: true }).isISO8601()
 ], async (req, res) => {
@@ -185,6 +214,16 @@ router.post('/', [
       }
     }
 
+    let observateurIds;
+    try {
+      observateurIds = await validateObservateurs(parseObservateurIds(req.body.observateurs));
+    } catch (err) {
+      if (err.invalidIds) {
+        return res.status(400).json({ message: 'Un ou plusieurs observateurs sont introuvables' });
+      }
+      throw err;
+    }
+
     const numero_ticket = await generateNumeroTicket();
     const ticket = await TicketPro.create({
       numero_ticket,
@@ -207,6 +246,7 @@ router.post('/', [
       statut: 'Ouvert',
       createur_id: req.user.id,
       assignee_id: assigneeId,
+      observateurs: observateurIds,
       notes_ouverture: req.body.notes_ouverture || null,
       date_echeance: req.body.date_echeance || null
     });
@@ -219,7 +259,18 @@ router.post('/', [
       ]
     });
 
-    return res.status(201).json({ message: 'Ticket créé avec succès', ticket: created });
+    const observerIds = created.observateurs || [];
+    let observateursUsers = [];
+    if (observerIds.length) {
+      observateursUsers = await User.findAll({
+        where: { id: { [Op.in]: observerIds } },
+        attributes: ['id', 'nom', 'prenom', 'email']
+      });
+    }
+    const ticketJson = created.toJSON();
+    ticketJson.observateursUsers = observateursUsers;
+
+    return res.status(201).json({ message: 'Ticket créé avec succès', ticket: ticketJson });
   } catch (error) {
     console.error('POST /tickets-pro error:', error);
     return res.status(500).json({ message: 'Erreur lors de la création du ticket' });

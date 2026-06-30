@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS `tbl_tickets_pro` (
   `statut` ENUM('Ouvert', 'En cours', 'En attente', 'Résolu', 'Fermé', 'Annulé') NOT NULL DEFAULT 'Ouvert',
   `createur_id` INT(11) NOT NULL,
   `assignee_id` INT(11) DEFAULT NULL,
+  `observateurs` TEXT DEFAULT NULL COMMENT 'IDs des observateurs (JSON)',
   `notes_ouverture` TEXT DEFAULT NULL,
   `date_echeance` DATETIME DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

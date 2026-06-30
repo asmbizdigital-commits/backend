@@ -1,7 +1,10 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
+const { sequelize } = require('../config/database');
 const TicketPro = require('../models/TicketPro');
+const TaskPro = require('../models/TaskPro');
+const PlainteTicketTask = require('../models/PlainteTicketTask');
 const Plainte = require('../models/Plainte');
 const User = require('../models/User');
 const DirectionProvinciale = require('../models/DirectionProvinciale');
@@ -122,6 +125,45 @@ const generateNumeroTicket = async () => {
   return `TICKET-${year}-${String(count + 1).padStart(4, '0')}`;
 };
 
+const generateNumeroTache = async () => {
+  const year = new Date().getFullYear();
+  const count = await TaskPro.count({
+    where: {
+      date_creation: {
+        [Op.gte]: new Date(`${year}-01-01`)
+      }
+    }
+  });
+  return `TASK-${year}-${String(count + 1).padStart(4, '0')}`;
+};
+
+const TICKET_TASK_CHECKLIST_LABELS = [
+  'Réception et Enregistrement du Ticket',
+  'Analyse et Diagnostic',
+  'Résolution et Suivi',
+  'Clôture et Amélioration Continue'
+];
+
+function buildTicketTaskChecklist() {
+  const baseId = Date.now();
+  return TICKET_TASK_CHECKLIST_LABELS.map((text, index) => ({
+    id: baseId + index,
+    text,
+    completed: false
+  }));
+}
+
+function buildTaskDescription({ numeroPlainte, numeroTicket, notesOuverture }) {
+  const lines = [
+    `Plainte : ${numeroPlainte}`,
+    `Ticket : ${numeroTicket}`
+  ];
+  if (notesOuverture && String(notesOuverture).trim()) {
+    lines.push('', 'Notes d\'ouverture :', String(notesOuverture).trim());
+  }
+  return lines.join('\n');
+}
+
 function parseObservateurIds(raw) {
   if (!Array.isArray(raw)) return [];
   const ids = [...new Set(
@@ -225,38 +267,85 @@ router.post('/', [
     }
 
     const numero_ticket = await generateNumeroTicket();
-    const ticket = await TicketPro.create({
-      numero_ticket,
-      plainte_id: plainte.id,
-      numero_plainte_ref: plainte.numero_plainte,
-      plainte_type: plainte.type_plainte,
-      plainte_titre: plainte.titre,
-      plainte_description: plainte.description,
-      plainte_categorie: plainte.categorie,
-      plainte_priorite: plainte.priorite,
-      plainte_statut: plainte.statut,
-      plainte_zone: plainte.zone,
-      direction_provinciale_id: plainte.direction_provinciale_id,
-      bureau_international_id: plainte.bureau_international_id,
-      plaignant_nom: plainte.plaignant_nom,
-      plaignant_prenom: plainte.plaignant_prenom,
-      plaignant_email: plainte.plaignant_email,
-      titre: req.body.titre.trim(),
-      priorite: req.body.priorite || plainte.priorite || 'Normale',
-      statut: 'Ouvert',
-      createur_id: req.user.id,
-      assignee_id: assigneeId,
-      observateurs: observateurIds,
-      notes_ouverture: req.body.notes_ouverture || null,
-      date_echeance: req.body.date_echeance || null
+    const numero_tache = await generateNumeroTache();
+    const checklist = buildTicketTaskChecklist();
+    const notesOuverture = req.body.notes_ouverture || null;
+    const ticketTitre = req.body.titre.trim();
+    const ticketPriorite = req.body.priorite || plainte.priorite || 'Normale';
+
+    const result = await sequelize.transaction(async (transaction) => {
+      const ticket = await TicketPro.create({
+        numero_ticket,
+        plainte_id: plainte.id,
+        numero_plainte_ref: plainte.numero_plainte,
+        plainte_type: plainte.type_plainte,
+        plainte_titre: plainte.titre,
+        plainte_description: plainte.description,
+        plainte_categorie: plainte.categorie,
+        plainte_priorite: plainte.priorite,
+        plainte_statut: plainte.statut,
+        plainte_zone: plainte.zone,
+        direction_provinciale_id: plainte.direction_provinciale_id,
+        bureau_international_id: plainte.bureau_international_id,
+        plaignant_nom: plainte.plaignant_nom,
+        plaignant_prenom: plainte.plaignant_prenom,
+        plaignant_email: plainte.plaignant_email,
+        titre: ticketTitre,
+        priorite: ticketPriorite,
+        statut: 'Ouvert',
+        createur_id: req.user.id,
+        assignee_id: assigneeId,
+        observateurs: observateurIds,
+        notes_ouverture: notesOuverture,
+        date_echeance: req.body.date_echeance || null
+      }, { transaction });
+
+      const task = await TaskPro.create({
+        numero_tache,
+        titre: `Traitement ${numero_ticket} — ${plainte.numero_plainte}`,
+        description: buildTaskDescription({
+          numeroPlainte: plainte.numero_plainte,
+          numeroTicket: numero_ticket,
+          notesOuverture
+        }),
+        type_tache: 'Tâche',
+        statut: 'À faire',
+        colonne_kanban: 'À faire',
+        priorite: ticketPriorite,
+        createur_id: req.user.id,
+        assignee_id: assigneeId,
+        watchers: observateurIds,
+        departement_id: plainte.departement_id || null,
+        sous_departement_id: plainte.sous_departement_id || null,
+        date_echeance: req.body.date_echeance || null,
+        checklist,
+        nombre_checklist_items: checklist.length,
+        checklist_completed: 0,
+        progression: 0,
+        visibilite: 'Public',
+        confidentialite: 'Normale'
+      }, { transaction });
+
+      const liaison = await PlainteTicketTask.create({
+        plainte_id: plainte.id,
+        ticket_pro_id: ticket.id,
+        task_pro_id: task.id,
+        createur_id: req.user.id
+      }, { transaction });
+
+      return { ticket, task, liaison };
     });
 
-    const created = await TicketPro.findByPk(ticket.id, {
+    const created = await TicketPro.findByPk(result.ticket.id, {
       include: [
         { model: Plainte, as: 'plainte', attributes: ['id', 'numero_plainte', 'titre'] },
         { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom', 'email'] },
         { model: User, as: 'assignee', attributes: ['id', 'nom', 'prenom', 'email'] }
       ]
+    });
+
+    const taskLoaded = await TaskPro.findByPk(result.task.id, {
+      attributes: ['id', 'numero_tache', 'titre', 'statut', 'priorite', 'checklist', 'nombre_checklist_items']
     });
 
     const observerIds = created.observateurs || [];
@@ -270,7 +359,17 @@ router.post('/', [
     const ticketJson = created.toJSON();
     ticketJson.observateursUsers = observateursUsers;
 
-    return res.status(201).json({ message: 'Ticket créé avec succès', ticket: ticketJson });
+    return res.status(201).json({
+      message: 'Ticket et tâche TASKPRO créés avec succès',
+      ticket: ticketJson,
+      task: taskLoaded ? taskLoaded.toJSON() : null,
+      liaison: {
+        id: result.liaison.id,
+        plainte_id: result.liaison.plainte_id,
+        ticket_pro_id: result.liaison.ticket_pro_id,
+        task_pro_id: result.liaison.task_pro_id
+      }
+    });
   } catch (error) {
     console.error('POST /tickets-pro error:', error);
     return res.status(500).json({ message: 'Erreur lors de la création du ticket' });

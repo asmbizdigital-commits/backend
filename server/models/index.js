@@ -57,6 +57,7 @@ const Message = require('./Message')(sequelize);
 const Plainte = require('./Plainte');
 const TaskPro = require('./TaskPro');
 const TicketPro = require('./TicketPro');
+const PlainteTicketTask = require('./PlainteTicketTask');
 const CommentaireTask = require('./CommentaireTask');
 const File = require('./File');
 const Folder = require('./Folder');
@@ -138,6 +139,19 @@ TicketPro.belongsTo(BureauInternational, {
   foreignKey: 'bureau_international_id',
   as: 'BureauInternational'
 });
+
+// Liaison plainte / ticket pro / tâche TASKPRO
+Plainte.hasMany(PlainteTicketTask, { foreignKey: 'plainte_id', as: 'plainteTicketTasks' });
+PlainteTicketTask.belongsTo(Plainte, { foreignKey: 'plainte_id', as: 'plainte' });
+
+TicketPro.hasOne(PlainteTicketTask, { foreignKey: 'ticket_pro_id', as: 'plainteTicketTask' });
+PlainteTicketTask.belongsTo(TicketPro, { foreignKey: 'ticket_pro_id', as: 'ticketPro' });
+
+TaskPro.hasOne(PlainteTicketTask, { foreignKey: 'task_pro_id', as: 'plainteTicketTask' });
+PlainteTicketTask.belongsTo(TaskPro, { foreignKey: 'task_pro_id', as: 'taskPro' });
+
+User.hasMany(PlainteTicketTask, { foreignKey: 'createur_id', as: 'PlainteTicketTasksCrees' });
+PlainteTicketTask.belongsTo(User, { foreignKey: 'createur_id', as: 'createur' });
 
 // Associations pour TaskPro
 User.hasMany(TaskPro, { foreignKey: 'createur_id', as: 'TasksProCreateur' });
@@ -964,6 +978,7 @@ module.exports = {
   Plainte,
   TaskPro,
   TicketPro,
+  PlainteTicketTask,
   CommentaireTask,
   File,
   Folder,

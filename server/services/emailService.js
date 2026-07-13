@@ -7,7 +7,7 @@ function getResendClient() {
 }
 
 function getFromAddress() {
-  return process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || 'Synaptasys <onboarding@resend.dev>';
+  return process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || 'Synaptasys <support@synaptasys.com>';
 }
 
 function getLoginUrl() {

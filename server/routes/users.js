@@ -3,6 +3,7 @@ const { body, validationResult, query } = require('express-validator');
 const { Op } = require('sequelize');
 const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { sendWelcomeUserEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -386,6 +387,7 @@ router.post('/', [
     }
 
     const userData = normalizeUserDepartmentFields({ ...req.body });
+    const plainPassword = userData.mot_de_passe;
     
     // Check if email already exists
     const existingUser = await User.findOne({ 
@@ -400,6 +402,20 @@ router.post('/', [
     }
 
     const user = await User.create(userData);
+
+    let emailResult = { sent: false };
+    try {
+      emailResult = await sendWelcomeUserEmail({
+        email: user.email,
+        prenom: user.prenom,
+        nom: user.nom,
+        role: user.role,
+        motDePasse: plainPassword
+      });
+    } catch (emailErr) {
+      console.error('Welcome email failed after user create:', emailErr);
+      emailResult = { sent: false, error: emailErr.message || 'Échec envoi email' };
+    }
 
     // Return user without password
     const userResponse = {
@@ -419,8 +435,12 @@ router.post('/', [
     };
 
     res.status(201).json({
-      message: 'Utilisateur créé avec succès',
-      user: userResponse
+      message: emailResult.sent
+        ? 'Utilisateur créé avec succès. Un email de bienvenue a été envoyé.'
+        : 'Utilisateur créé avec succès. L\'email de bienvenue n\'a pas pu être envoyé.',
+      user: userResponse,
+      email_sent: Boolean(emailResult.sent),
+      email_error: emailResult.sent ? undefined : emailResult.error
     });
 
   } catch (error) {

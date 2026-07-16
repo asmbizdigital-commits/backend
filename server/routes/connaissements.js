@@ -1,6 +1,7 @@
 const express = require('express');
 const { query, validationResult } = require('express-validator');
-const { Op } = require('sequelize');
+const { Op, QueryTypes } = require('sequelize');
+const { sequelize } = require('../config/database');
 const Connaissement = require('../models/Connaissement');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const User = require('../models/User');
@@ -204,6 +205,23 @@ router.get(
       });
 
       const blIds = rows.map((d) => d.id);
+      const bvByConnId = new Map();
+      if (blIds.length > 0) {
+        const douaniers = await sequelize.query(
+          `SELECT connaissement_id, bv_number FROM documents_douaniers
+           WHERE connaissement_id IN (:ids)`,
+          {
+            replacements: { ids: blIds },
+            type: QueryTypes.SELECT
+          }
+        );
+        for (const dd of douaniers) {
+          if (dd?.connaissement_id != null) {
+            bvByConnId.set(Number(dd.connaissement_id), dd.bv_number || '');
+          }
+        }
+      }
+
       const assignationByNormId = new Map();
       if (blIds.length > 0) {
         const assignations = await AssignationBLControleur.findAll({
@@ -232,6 +250,8 @@ router.get(
 
       const documentsPayload = rows.map((doc) => {
         const json = formatConnaissementForClient(doc);
+        json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
+        json.bv_number = json.bvNumber;
         const k = normConnId(doc.id);
         const ass = k ? assignationByNormId.get(k) : null;
         if (ass && ass.assigneeId) {

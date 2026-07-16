@@ -123,7 +123,174 @@ async function sendWelcomeUserEmail({ email, prenom, nom, role, motDePasse }) {
   }
 }
 
+const ASSIGNATION_BL_NOTIFY_TO = [
+  'javakikso@gmail.com',
+  'asmbizdigital@gmail.com'
+];
+
+/**
+ * Notification d'assignation B/L (dossier attribué à un saisisseur).
+ * @returns {{ sent: boolean, error?: string, id?: string }}
+ */
+async function sendAssignationBlNotificationEmail({
+  dossiers = [],
+  assigneeName,
+  assigneeRole,
+  priorite,
+  dateLimite,
+  commentaire,
+  assigneParName
+}) {
+  const resend = getResendClient();
+  if (!resend) {
+    console.warn('[email] RESEND_API manquant — notification assignation non envoyée');
+    return { sent: false, error: 'RESEND_API non configuré' };
+  }
+
+  const list = Array.isArray(dossiers) ? dossiers.filter(Boolean) : [];
+  if (!list.length) {
+    return { sent: false, error: 'Aucun dossier à notifier' };
+  }
+
+  const safeAssignee = escapeHtml(assigneeName || '—');
+  const safeRole = escapeHtml(assigneeRole || 'Saisisseur');
+  const safePriorite = escapeHtml(priorite || 'Normale');
+  const safeAssignePar = escapeHtml(assigneParName || '—');
+  const safeDateLimite = dateLimite
+    ? escapeHtml(new Date(dateLimite).toLocaleDateString('fr-FR'))
+    : '—';
+  const safeCommentaire = commentaire && String(commentaire).trim()
+    ? escapeHtml(String(commentaire).trim())
+    : null;
+
+  const dossierRowsHtml = list
+    .map((d) => {
+      const numDossier = escapeHtml(d.numeroDossier || d.numero_dossier || '—');
+      const numBl = escapeHtml(d.blNumber || d.bl_number || '—');
+      return `
+        <tr>
+          <td style="padding:14px 16px;border-bottom:1px solid #eef2f7;color:#0f172a;font-size:14px;font-weight:600;">${numDossier}</td>
+          <td style="padding:14px 16px;border-bottom:1px solid #eef2f7;color:#334155;font-size:14px;font-family:Consolas,Monaco,monospace;">${numBl}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const countLabel = list.length === 1 ? '1 dossier' : `${list.length} dossiers`;
+  const subject =
+    list.length === 1
+      ? `Assignation dossier ${list[0].numeroDossier || list[0].blNumber || ''} — ${assigneeName || ''}`.trim()
+      : `Assignation de ${list.length} dossiers — ${assigneeName || ''}`.trim();
+
+  const html = `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Assignation dossier</title></head>
+<body style="margin:0;padding:0;background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fa;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.06);">
+          <tr>
+            <td style="padding:28px 32px 20px;border-bottom:1px solid #eef2f7;">
+              <p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;font-weight:600;">Synaptasys · Exploitation</p>
+              <h1 style="margin:0;font-size:22px;line-height:1.3;color:#0f172a;font-weight:700;">Nouveau dossier attribué</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;">
+              <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#334155;">
+                Un dossier vous a été attribué à <strong style="color:#0f172a;">${safeAssignee}</strong>
+                <span style="color:#64748b;">(${safeRole})</span>.
+              </p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e8edf5;border-radius:12px;overflow:hidden;margin:0 0 20px;">
+                <tr style="background:#f8fafc;">
+                  <th align="left" style="padding:12px 16px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;font-weight:600;">Nº dossier</th>
+                  <th align="left" style="padding:12px 16px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;font-weight:600;">Nº B/L</th>
+                </tr>
+                ${dossierRowsHtml}
+              </table>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;">
+                <tr>
+                  <td style="padding:8px 0;font-size:13px;color:#94a3b8;width:40%;">Priorité</td>
+                  <td style="padding:8px 0;font-size:14px;color:#0f172a;font-weight:600;">${safePriorite}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;font-size:13px;color:#94a3b8;">Date limite</td>
+                  <td style="padding:8px 0;font-size:14px;color:#0f172a;font-weight:600;">${safeDateLimite}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;font-size:13px;color:#94a3b8;">Assigné par</td>
+                  <td style="padding:8px 0;font-size:14px;color:#0f172a;font-weight:600;">${safeAssignePar}</td>
+                </tr>
+              </table>
+              ${
+                safeCommentaire
+                  ? `<div style="margin-top:16px;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #eef2f7;">
+                      <p style="margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;font-weight:600;">Commentaire</p>
+                      <p style="margin:0;font-size:14px;line-height:1.55;color:#334155;">${safeCommentaire}</p>
+                    </div>`
+                  : ''
+              }
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 32px 28px;border-top:1px solid #eef2f7;">
+              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">
+                Notification automatique Synaptasys · ${escapeHtml(countLabel)} assigné(s).
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const textLines = [
+    'Nouveau dossier attribué — Synaptasys',
+    '',
+    `Attribué à : ${assigneeName || '—'} (${assigneeRole || 'Saisisseur'})`,
+    `Priorité : ${priorite || 'Normale'}`,
+    `Date limite : ${dateLimite ? new Date(dateLimite).toLocaleDateString('fr-FR') : '—'}`,
+    `Assigné par : ${assigneParName || '—'}`,
+    '',
+    'Dossiers :'
+  ];
+  list.forEach((d) => {
+    textLines.push(
+      `- Dossier ${d.numeroDossier || d.numero_dossier || '—'} · B/L ${d.blNumber || d.bl_number || '—'}`
+    );
+  });
+  if (commentaire && String(commentaire).trim()) {
+    textLines.push('', `Commentaire : ${String(commentaire).trim()}`);
+  }
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFromAddress(),
+      to: ASSIGNATION_BL_NOTIFY_TO,
+      subject,
+      html,
+      text: textLines.join('\n')
+    });
+
+    if (error) {
+      console.error('[email] Resend assignation B/L error:', error);
+      return { sent: false, error: error.message || String(error) };
+    }
+
+    console.log('[email] Assignation B/L notification sent id=', data?.id);
+    return { sent: true, id: data?.id || null };
+  } catch (err) {
+    console.error('[email] Assignation B/L notification exception:', err);
+    return { sent: false, error: err.message || 'Échec envoi email' };
+  }
+}
+
 module.exports = {
   sendWelcomeUserEmail,
-  getResendClient
+  sendAssignationBlNotificationEmail,
+  getResendClient,
+  ASSIGNATION_BL_NOTIFY_TO
 };

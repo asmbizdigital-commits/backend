@@ -7,6 +7,7 @@ const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
+const { sendAssignationBlNotificationEmail } = require('../services/emailService');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -200,8 +201,38 @@ router.post(
         created.push(assignation);
       }
 
+      const assigneeName =
+        `${assignee.prenom || ''} ${assignee.nom || ''}`.trim() || assignee.email || `Utilisateur #${assignee.id}`;
+      const assigneParName =
+        `${req.user?.prenom || ''} ${req.user?.nom || ''}`.trim() || req.user?.email || '—';
+
+      let emailResult = { sent: false };
+      try {
+        emailResult = await sendAssignationBlNotificationEmail({
+          dossiers: rows.map((c) => ({
+            numeroDossier: c.numeroDossier || c.numero_dossier || null,
+            blNumber: c.blNumber || c.bl_number || null
+          })),
+          assigneeName,
+          assigneeRole: roleCible,
+          priorite,
+          dateLimite: req.body.date_limite || null,
+          commentaire: req.body.commentaire || null,
+          assigneParName
+        });
+      } catch (emailErr) {
+        console.error('Assignation B/L email failed:', emailErr);
+        emailResult = { sent: false, error: emailErr.message || 'Échec envoi email' };
+      }
+
       emitAssignationsChanged(req);
-      res.status(201).json({ success: true, created_count: created.length, assignations: created });
+      res.status(201).json({
+        success: true,
+        created_count: created.length,
+        assignations: created,
+        email_sent: Boolean(emailResult.sent),
+        email_error: emailResult.sent ? undefined : emailResult.error
+      });
     } catch (error) {
       console.error('POST /api/assignations-bl', error);
       res.status(500).json({ success: false, message: "Erreur lors de la création de l'assignation B/L" });

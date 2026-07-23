@@ -12,8 +12,9 @@ const USER_ROLES = [
   'Web Master', 'Superviseur Finance', 'Agent', 'Superviseur',
   'Administrateur', 'Patron', 'Guichetier', 'Superviseur Stock', 'Auditeur',
   'Superviseur Technique', 'Agent Exterieur', 'Agent Gouvernant', 'Booker',
-  'call_center', 'Saisisseur', 'Verificateur Sygrem',
-  'Gestionnaire des Plaintes', 'Manager Bureau', 'Directeur Opérations', 'Directeur Operations'
+  'call_center', 'Saisisseur', 'Verificateur Sygrem', 'Controlleur Sygram',
+  'Gestionnaire des Plaintes', 'Manager Bureau', 'Responsable Zone',
+  'Chef Exécutif des Opérations', 'Directeur Opérations', 'Directeur Operations'
 ];
 
 function mapPosteToRole(poste) {
@@ -30,7 +31,11 @@ function mapPosteToRole(poste) {
   if (p.includes('rh') || p.includes('ressources humaines')) return 'Superviseur RH';
   if (p.includes('comptab')) return 'Superviseur Comptable';
   if (p.includes('finance')) return 'Superviseur Finance';
+  if (p.includes('chef') && p.includes('executif') && p.includes('operation')) {
+    return 'Chef Exécutif des Opérations';
+  }
   if (p.includes('directeur') && p.includes('operation')) return 'Directeur Opérations';
+  if (p.includes('responsable') && p.includes('zone')) return 'Responsable Zone';
   if (p.includes('plainte')) return 'Gestionnaire des Plaintes';
   if (p.includes('manager') && p.includes('bureau')) return 'Manager Bureau';
   if (p.includes('auditeur')) return 'Auditeur';

@@ -289,14 +289,16 @@ async function sendAssignationBlNotificationEmail({
 }
 
 /**
- * Notification : dossier exporté / envoyé vers Sygrem (Excel en pièce jointe).
+ * Notification : dossier exporté / envoyé vers Sygrem (Excel en pièces jointes).
  * Destinataires : javakikso@gmail.com, asmbizdigital@gmail.com
+ * @param {{ numeroDossier: string, attachments?: Array<{ fileName: string, buffer: Buffer|Uint8Array|ArrayBuffer }>, fileName?: string, excelBuffer?: Buffer }} opts
  * @returns {{ sent: boolean, error?: string, id?: string }}
  */
 async function sendSygremExportNotificationEmail({
   numeroDossier,
   fileName,
-  excelBuffer
+  excelBuffer,
+  attachments: attachmentInputs
 }) {
   const resend = getResendClient();
   if (!resend) {
@@ -305,9 +307,38 @@ async function sendSygremExportNotificationEmail({
   }
 
   const dossierLabel = String(numeroDossier || '').trim() || '—';
-  const attachmentName = String(fileName || '').trim() || `${dossierLabel} - cargaison.xlsx`;
   const safeDossier = escapeHtml(dossierLabel);
-  const safeFileName = escapeHtml(attachmentName);
+
+  const files = [];
+  if (Array.isArray(attachmentInputs) && attachmentInputs.length) {
+    for (const item of attachmentInputs) {
+      const name = String(item?.fileName || item?.filename || '').trim();
+      const buf = item?.buffer ?? item?.content;
+      if (!name || buf == null) continue;
+      const content = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+      if (!content.length) continue;
+      files.push({ filename: name, content });
+    }
+  } else if (excelBuffer && (excelBuffer.length || excelBuffer.byteLength)) {
+    const attachmentName = String(fileName || '').trim() || `${dossierLabel} - cargaison.xlsx`;
+    files.push({
+      filename: attachmentName,
+      content: Buffer.isBuffer(excelBuffer) ? excelBuffer : Buffer.from(excelBuffer)
+    });
+  }
+
+  const fileListHtml = files.length
+    ? files
+        .map(
+          (f) =>
+            `<li style="margin:0 0 6px;font-size:14px;font-weight:600;color:#0f172a;font-family:Consolas,Monaco,monospace;">${escapeHtml(f.filename)}</li>`
+        )
+        .join('')
+    : '<li style="margin:0;color:#64748b;">Aucun fichier</li>';
+
+  const fileListText = files.length
+    ? files.map((f) => `- ${f.filename}`).join('\n')
+    : '- (aucun fichier)';
 
   const subject = `Dossier ${dossierLabel} envoyé vers Sygrem`;
   const html = `
@@ -331,17 +362,17 @@ async function sendSygremExportNotificationEmail({
                 Le dossier <strong style="color:#0f172a;">${safeDossier}</strong> a été envoyé vers Sygrem.
               </p>
               <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#64748b;">
-                Le fichier Excel de cargaison est joint à cet email :
+                Fichiers Excel joints à cet email (cargaison et condition) :
               </p>
-              <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;font-family:Consolas,Monaco,monospace;">
-                ${safeFileName}
-              </p>
+              <ul style="margin:0;padding-left:18px;">
+                ${fileListHtml}
+              </ul>
             </td>
           </tr>
           <tr>
             <td style="padding:18px 32px 28px;border-top:1px solid #eef2f7;">
               <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">
-                Notification automatique Synaptasys — export Excel cargaison FERI.
+                Notification automatique Synaptasys — export Excel FERI (cargaison + condition).
               </p>
             </td>
           </tr>
@@ -356,16 +387,9 @@ async function sendSygremExportNotificationEmail({
     'Envoi vers Sygrem — Synaptasys',
     '',
     `Le dossier ${dossierLabel} a été envoyé vers Sygrem.`,
-    `Fichier Excel joint : ${attachmentName}`
+    'Fichiers Excel joints :',
+    fileListText
   ].join('\n');
-
-  const attachments = [];
-  if (excelBuffer && excelBuffer.length) {
-    attachments.push({
-      filename: attachmentName,
-      content: Buffer.isBuffer(excelBuffer) ? excelBuffer : Buffer.from(excelBuffer)
-    });
-  }
 
   try {
     const payload = {
@@ -375,7 +399,7 @@ async function sendSygremExportNotificationEmail({
       html,
       text
     };
-    if (attachments.length) payload.attachments = attachments;
+    if (files.length) payload.attachments = files;
 
     const { data, error } = await resend.emails.send(payload);
 
@@ -384,7 +408,7 @@ async function sendSygremExportNotificationEmail({
       return { sent: false, error: error.message || String(error) };
     }
 
-    console.log('[email] Export Sygrem notification sent id=', data?.id, 'dossier=', dossierLabel);
+    console.log('[email] Export Sygrem notification sent id=', data?.id, 'dossier=', dossierLabel, 'files=', files.length);
     return { sent: true, id: data?.id || null };
   } catch (err) {
     console.error('[email] Export Sygrem notification exception:', err);

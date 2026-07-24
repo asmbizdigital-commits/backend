@@ -27,37 +27,63 @@ router.use(authenticateToken);
 
 /**
  * POST /api/connaissements/notify-sygrem-export
- * Envoie un email (Sygrem) avec le fichier Excel en pièce jointe.
- * Body: { numero_dossier, file_name, excel_base64 }
+ * Envoie un email (Sygrem) avec un ou plusieurs fichiers Excel en pièces jointes.
+ * Body:
+ *  - { numero_dossier, file_name, excel_base64 }
+ *  - ou { numero_dossier, files: [{ file_name, excel_base64 }, ...] }
  */
 router.post('/notify-sygrem-export', async (req, res) => {
   try {
     const numeroDossier = String(req.body?.numero_dossier || req.body?.numeroDossier || '').trim();
-    const fileName = String(req.body?.file_name || req.body?.fileName || '').trim();
-    const excelBase64 = String(req.body?.excel_base64 || req.body?.excelBase64 || '').trim();
-
     if (!numeroDossier) {
       return res.status(400).json({ message: 'numero_dossier requis' });
     }
-    if (!excelBase64) {
-      return res.status(400).json({ message: 'excel_base64 requis' });
+
+    const attachments = [];
+    const filesInput = Array.isArray(req.body?.files) ? req.body.files : null;
+
+    if (filesInput && filesInput.length) {
+      for (const item of filesInput) {
+        const name = String(item?.file_name || item?.fileName || '').trim();
+        const b64 = String(item?.excel_base64 || item?.excelBase64 || '').trim();
+        if (!name || !b64) continue;
+        let buf;
+        try {
+          buf = Buffer.from(b64, 'base64');
+        } catch {
+          return res.status(400).json({ message: `excel_base64 invalide pour ${name}` });
+        }
+        if (!buf.length) continue;
+        attachments.push({ fileName: name, buffer: buf });
+      }
+    } else {
+      const fileName = String(req.body?.file_name || req.body?.fileName || '').trim();
+      const excelBase64 = String(req.body?.excel_base64 || req.body?.excelBase64 || '').trim();
+      if (!excelBase64) {
+        return res.status(400).json({ message: 'excel_base64 ou files[] requis' });
+      }
+      let excelBuffer;
+      try {
+        excelBuffer = Buffer.from(excelBase64, 'base64');
+      } catch (decodeErr) {
+        return res.status(400).json({ message: 'excel_base64 invalide' });
+      }
+      if (!excelBuffer.length) {
+        return res.status(400).json({ message: 'Fichier Excel vide' });
+      }
+      attachments.push({
+        fileName: fileName || `${numeroDossier} - cargaison.xlsx`,
+        buffer: excelBuffer
+      });
     }
 
-    let excelBuffer;
-    try {
-      excelBuffer = Buffer.from(excelBase64, 'base64');
-    } catch (decodeErr) {
-      return res.status(400).json({ message: 'excel_base64 invalide' });
-    }
-
-    if (!excelBuffer.length) {
-      return res.status(400).json({ message: 'Fichier Excel vide' });
+    if (!attachments.length) {
+      return res.status(400).json({ message: 'Aucun fichier Excel valide' });
     }
 
     const emailResult = await sendSygremExportNotificationEmail({
       numeroDossier,
-      fileName: fileName || `${numeroDossier} - cargaison.xlsx`,
-      excelBuffer
+      attachments
     });
 
     if (!emailResult.sent) {
@@ -70,7 +96,8 @@ router.post('/notify-sygrem-export', async (req, res) => {
     return res.json({
       success: true,
       message: 'Notification Sygrem envoyée',
-      email: emailResult
+      email: emailResult,
+      filesCount: attachments.length
     });
   } catch (error) {
     console.error('notify-sygrem-export error:', error);

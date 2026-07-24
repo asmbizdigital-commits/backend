@@ -20,9 +20,65 @@ const {
   ingestUnifiedExtract,
   saveCommercialInvoiceItems
 } = require('../services/connaissementFicheAsmService');
+const { sendSygremExportNotificationEmail } = require('../services/emailService');
 
 const router = express.Router();
 router.use(authenticateToken);
+
+/**
+ * POST /api/connaissements/notify-sygrem-export
+ * Envoie un email (Sygrem) avec le fichier Excel en pièce jointe.
+ * Body: { numero_dossier, file_name, excel_base64 }
+ */
+router.post('/notify-sygrem-export', async (req, res) => {
+  try {
+    const numeroDossier = String(req.body?.numero_dossier || req.body?.numeroDossier || '').trim();
+    const fileName = String(req.body?.file_name || req.body?.fileName || '').trim();
+    const excelBase64 = String(req.body?.excel_base64 || req.body?.excelBase64 || '').trim();
+
+    if (!numeroDossier) {
+      return res.status(400).json({ message: 'numero_dossier requis' });
+    }
+    if (!excelBase64) {
+      return res.status(400).json({ message: 'excel_base64 requis' });
+    }
+
+    let excelBuffer;
+    try {
+      excelBuffer = Buffer.from(excelBase64, 'base64');
+    } catch (decodeErr) {
+      return res.status(400).json({ message: 'excel_base64 invalide' });
+    }
+
+    if (!excelBuffer.length) {
+      return res.status(400).json({ message: 'Fichier Excel vide' });
+    }
+
+    const emailResult = await sendSygremExportNotificationEmail({
+      numeroDossier,
+      fileName: fileName || `${numeroDossier} - cargaison.xlsx`,
+      excelBuffer
+    });
+
+    if (!emailResult.sent) {
+      return res.status(502).json({
+        message: emailResult.error || 'Échec envoi email Sygrem',
+        email: emailResult
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Notification Sygrem envoyée',
+      email: emailResult
+    });
+  } catch (error) {
+    console.error('notify-sygrem-export error:', error);
+    return res.status(500).json({
+      message: error.message || 'Erreur lors de la notification Sygrem'
+    });
+  }
+});
 
 function emitConnaissementsChanged(req) {
   const io = req.app.get('io');

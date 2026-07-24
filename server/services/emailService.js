@@ -288,9 +288,114 @@ async function sendAssignationBlNotificationEmail({
   }
 }
 
+/**
+ * Notification : dossier exporté / envoyé vers Sygrem (Excel en pièce jointe).
+ * Destinataires : javakikso@gmail.com, asmbizdigital@gmail.com
+ * @returns {{ sent: boolean, error?: string, id?: string }}
+ */
+async function sendSygremExportNotificationEmail({
+  numeroDossier,
+  fileName,
+  excelBuffer
+}) {
+  const resend = getResendClient();
+  if (!resend) {
+    console.warn('[email] RESEND_API manquant — notification export Sygrem non envoyée');
+    return { sent: false, error: 'RESEND_API non configuré' };
+  }
+
+  const dossierLabel = String(numeroDossier || '').trim() || '—';
+  const attachmentName = String(fileName || '').trim() || `${dossierLabel} - cargaison.xlsx`;
+  const safeDossier = escapeHtml(dossierLabel);
+  const safeFileName = escapeHtml(attachmentName);
+
+  const subject = `Dossier ${dossierLabel} envoyé vers Sygrem`;
+  const html = `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Export Sygrem</title></head>
+<body style="margin:0;padding:0;background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fa;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.06);">
+          <tr>
+            <td style="padding:28px 32px 20px;border-bottom:1px solid #eef2f7;">
+              <p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;font-weight:600;">Synaptasys · Exploitation</p>
+              <h1 style="margin:0;font-size:22px;line-height:1.3;color:#0f172a;font-weight:700;">Envoi vers Sygrem</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 32px;">
+              <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#334155;">
+                Le dossier <strong style="color:#0f172a;">${safeDossier}</strong> a été envoyé vers Sygrem.
+              </p>
+              <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#64748b;">
+                Le fichier Excel de cargaison est joint à cet email :
+              </p>
+              <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;font-family:Consolas,Monaco,monospace;">
+                ${safeFileName}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 32px 28px;border-top:1px solid #eef2f7;">
+              <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.5;">
+                Notification automatique Synaptasys — export Excel cargaison FERI.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const text = [
+    'Envoi vers Sygrem — Synaptasys',
+    '',
+    `Le dossier ${dossierLabel} a été envoyé vers Sygrem.`,
+    `Fichier Excel joint : ${attachmentName}`
+  ].join('\n');
+
+  const attachments = [];
+  if (excelBuffer && excelBuffer.length) {
+    attachments.push({
+      filename: attachmentName,
+      content: Buffer.isBuffer(excelBuffer) ? excelBuffer : Buffer.from(excelBuffer)
+    });
+  }
+
+  try {
+    const payload = {
+      from: getFromAddress(),
+      to: ASSIGNATION_BL_NOTIFY_TO,
+      subject,
+      html,
+      text
+    };
+    if (attachments.length) payload.attachments = attachments;
+
+    const { data, error } = await resend.emails.send(payload);
+
+    if (error) {
+      console.error('[email] Resend export Sygrem error:', error);
+      return { sent: false, error: error.message || String(error) };
+    }
+
+    console.log('[email] Export Sygrem notification sent id=', data?.id, 'dossier=', dossierLabel);
+    return { sent: true, id: data?.id || null };
+  } catch (err) {
+    console.error('[email] Export Sygrem notification exception:', err);
+    return { sent: false, error: err.message || 'Échec envoi email' };
+  }
+}
+
 module.exports = {
   sendWelcomeUserEmail,
   sendAssignationBlNotificationEmail,
+  sendSygremExportNotificationEmail,
   getResendClient,
   ASSIGNATION_BL_NOTIFY_TO
 };

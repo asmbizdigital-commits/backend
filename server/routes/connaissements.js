@@ -315,6 +315,7 @@ router.get(
 
       const { since, status, limit = 500 } = req.query;
       const where = {};
+      const isControleurViewer = isRoleExploitationControleDossiers(req.user.role);
 
       if (since) {
         const d = new Date(since);
@@ -322,37 +323,47 @@ router.get(
           where.createdAt = { [Op.gt]: d };
         }
       }
-      if (status === 'validated' || status === 'processed') where.isValidated = true;
-      else if (status === 'declared') where.isDeclared = true;
-      else if (status === 'exported') where.isExported = true;
-      else if (status === 'pending') {
-        where.isValidated = false;
-        where.isDeclared = false;
-        where.isExported = false;
+
+      // Les filtres status ne s'appliquent PAS aux contrôleurs/vérificateurs :
+      // dès qu'un admin leur assigne un dossier, il doit être visible même non validé.
+      if (!isControleurViewer) {
+        if (status === 'validated' || status === 'processed') where.isValidated = true;
+        else if (status === 'declared') where.isDeclared = true;
+        else if (status === 'exported') where.isExported = true;
+        else if (status === 'pending') {
+          where.isValidated = false;
+          where.isDeclared = false;
+          where.isExported = false;
+        }
       }
 
-      if (isRoleExploitationControleDossiers(req.user.role)) {
+      if (isControleurViewer) {
         const assignRows = await AssignationBLControleur.findAll({
           where: {
             assigneeId: req.user.id,
-            statut: { [Op.ne]: 'Annulée' }
+            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
           attributes: ['connaissementId']
         });
-        const ids = [...new Set(assignRows.map((r) => r.connaissementId))];
+        const ids = [...new Set(assignRows.map((r) => r.connaissementId).filter(Boolean))];
         if (ids.length === 0) {
           return res.json({
             success: true,
             documents: [],
             count: 0,
-            source: 'connaissements'
+            source: 'connaissements',
+            scope: 'assigned_controleur'
           });
         }
+        // Uniquement les dossiers assignés — aucun filtre zone / isValidated / isDeclared
         where.id = { [Op.in]: ids };
-        where.isValidated = true;
+        delete where.isValidated;
+        delete where.isDeclared;
+        delete where.isExported;
       }
 
-      if (isManagerBureauRole(req.user.role)) {
+      // Filtre geo Manager Bureau : jamais pour un contrôleur/vérificateur
+      if (!isControleurViewer && isManagerBureauRole(req.user.role)) {
         const userGeo = await loadUserGeo(req.user.id);
         const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
         if (geoWhere) {

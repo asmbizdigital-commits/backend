@@ -89,6 +89,7 @@ const BureauInternational = require('./BureauInternational');
 const Zone = require('./Zone');
 const Connaissement = require('./Connaissement');
 const DocsFeri = require('./DocsFeri');
+const DocsControleBl = require('./DocsControleBl');
 const AssignationBL = require('./AssignationBL');
 const AssignationBLControleur = require('./AssignationBLControleur');
 // Alerte model removed
@@ -902,6 +903,9 @@ AssignationBLControleur.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskP
 Connaissement.hasOne(DocsFeri, { foreignKey: 'docConnaissementId', as: 'docFeri' });
 DocsFeri.belongsTo(Connaissement, { foreignKey: 'docConnaissementId', as: 'connaissement' });
 
+Connaissement.hasMany(DocsControleBl, { foreignKey: 'connaissementId', as: 'docsControle' });
+DocsControleBl.belongsTo(Connaissement, { foreignKey: 'connaissementId', as: 'connaissement' });
+
 Connaissement.belongsTo(Zone, { foreignKey: 'zone_connaissement', as: 'Zone' });
 Zone.hasMany(Connaissement, { foreignKey: 'zone_connaissement', as: 'Connaissements' });
 
@@ -1011,6 +1015,7 @@ module.exports = {
   Zone,
   Connaissement,
   DocsFeri,
+  DocsControleBl,
   AssignationBL,
   AssignationBLControleur,
   // Alerte removed

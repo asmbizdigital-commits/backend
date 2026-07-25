@@ -22,6 +22,27 @@ const {
 } = require('../services/connaissementFicheAsmService');
 const { sendSygremExportNotificationEmail } = require('../services/emailService');
 const DocsFeri = require('../models/DocsFeri');
+const DocsControleBl = require('../models/DocsControleBl');
+const multer = require('multer');
+const path = require('path');
+const { CloudinaryService } = require('../services/cloudinaryService');
+const cloudinary = require('cloudinary').v2;
+
+const MAX_DOCS_CONTROLE = 5;
+
+const uploadControleDocs = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = /\.(pdf|jpe?g|png|gif|webp|doc|docx|xls|xlsx)$/i;
+    const allowedMime = /^(application\/pdf|image\/|application\/msword|application\/vnd\.)/i;
+    const ok =
+      allowedExt.test(path.extname(file.originalname || '')) ||
+      allowedMime.test(String(file.mimetype || ''));
+    if (ok) cb(null, true);
+    else cb(new Error('Type de fichier non autorisé (PDF, images, Office)'));
+  }
+});
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -38,6 +59,77 @@ function formatDocsFeri(doc) {
     created_at: plain.createdAt ?? plain.created_at,
     updated_at: plain.updatedAt ?? plain.updated_at
   };
+}
+
+function formatDocsControle(doc) {
+  if (!doc) return null;
+  const plain = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  return {
+    id: plain.id,
+    connaissement_id: plain.connaissementId ?? plain.connaissement_id,
+    file_url: plain.fileUrl ?? plain.file_url,
+    cloudinary_public_id: plain.cloudinaryPublicId ?? plain.cloudinary_public_id,
+    original_filename: plain.originalFilename ?? plain.original_filename,
+    mime_type: plain.mimeType ?? plain.mime_type,
+    uploaded_by: plain.uploadedBy ?? plain.uploaded_by,
+    created_at: plain.createdAt ?? plain.created_at,
+    updated_at: plain.updatedAt ?? plain.updated_at
+  };
+}
+
+async function uploadControleFileToCloudinary(file, connaissementId) {
+  const mime = String(file.mimetype || 'application/octet-stream');
+  const isImage = mime.startsWith('image/');
+  const folder = `asm-clients/controle-bl/${connaissementId}`;
+
+  if (isImage) {
+    const result = await CloudinaryService.uploadBuffer(file.buffer, folder, {
+      mimetype: mime,
+      use_filename: true,
+      unique_filename: true,
+      access_mode: 'public'
+    });
+    if (!result?.success) {
+      throw new Error(result?.error || 'Échec upload Cloudinary');
+    }
+    return {
+      url: result.secure_url || result.url,
+      publicId: result.public_id
+    };
+  }
+
+  const dataUri = `data:${mime};base64,${file.buffer.toString('base64')}`;
+  const result = await cloudinary.uploader.upload(dataUri, {
+    folder,
+    resource_type: 'raw',
+    use_filename: true,
+    unique_filename: true,
+    access_mode: 'public'
+  });
+  return {
+    url: result.secure_url || result.url,
+    publicId: result.public_id
+  };
+}
+
+async function assertCanManageControleDocs(req, connaissementId) {
+  if (isRoleExploitationControleDossiers(req.user.role)) {
+    const assignation = await AssignationBLControleur.findOne({
+      where: {
+        connaissementId,
+        assigneeId: req.user.id,
+        statut: { [Op.ne]: 'Annulée' }
+      }
+    });
+    if (!assignation) {
+      return { ok: false, status: 403, message: 'Vous devez être assigné à ce dossier pour gérer les pièces jointes.' };
+    }
+    return { ok: true };
+  }
+  if (['Administrateur', 'Patron', 'Directeur Opérations', 'Directeur Operations'].includes(req.user.role)) {
+    return { ok: true };
+  }
+  return { ok: false, status: 403, message: 'Permission insuffisante pour gérer les pièces jointes de contrôle.' };
 }
 
 /**
@@ -101,6 +193,160 @@ router.get('/:id/docs-feri', async (req, res) => {
     console.error('GET /:id/docs-feri error:', error);
     return res.status(500).json({
       message: error.message || 'Erreur lors du chargement des pièces jointes FERI'
+    });
+  }
+});
+
+/**
+ * GET /api/connaissements/:id/docs-controle
+ * Liste des pièces jointes de contrôle (max 5).
+ */
+router.get('/:id/docs-controle', async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const docs = await DocsControleBl.findAll({
+      where: { connaissementId: id },
+      order: [['id', 'ASC']]
+    });
+
+    return res.json({
+      success: true,
+      documents: docs.map(formatDocsControle),
+      max: MAX_DOCS_CONTROLE,
+      remaining: Math.max(0, MAX_DOCS_CONTROLE - docs.length)
+    });
+  } catch (error) {
+    console.error('GET /:id/docs-controle error:', error);
+    return res.status(500).json({
+      message: error.message || 'Erreur lors du chargement des pièces jointes de contrôle'
+    });
+  }
+});
+
+/**
+ * POST /api/connaissements/:id/docs-controle
+ * Upload jusqu'à 5 fichiers (champ `files`).
+ */
+router.post(
+  '/:id/docs-controle',
+  (req, res, next) => {
+    uploadControleDocs.array('files', MAX_DOCS_CONTROLE)(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ message: err.message || 'Upload invalide' });
+      }
+      return next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (Number.isNaN(id) || id < 1) {
+        return res.status(400).json({ message: 'Identifiant invalide' });
+      }
+
+      const conn = await Connaissement.findByPk(id, { attributes: ['id'] });
+      if (!conn) {
+        return res.status(404).json({ message: 'Connaissement introuvable' });
+      }
+
+      const access = await assertCanManageControleDocs(req, id);
+      if (!access.ok) {
+        return res.status(access.status).json({ message: access.message });
+      }
+
+      const existingCount = await DocsControleBl.count({ where: { connaissementId: id } });
+      const incoming = Array.isArray(req.files) ? req.files : [];
+      if (!incoming.length) {
+        return res.status(400).json({ message: 'Aucun fichier reçu (champ files)' });
+      }
+      if (existingCount + incoming.length > MAX_DOCS_CONTROLE) {
+        return res.status(400).json({
+          message: `Maximum ${MAX_DOCS_CONTROLE} pièces jointes. Places restantes : ${Math.max(0, MAX_DOCS_CONTROLE - existingCount)}.`
+        });
+      }
+
+      const created = [];
+      for (const file of incoming) {
+        const uploaded = await uploadControleFileToCloudinary(file, id);
+        if (!uploaded?.url) {
+          return res.status(502).json({ message: 'Échec upload Cloudinary' });
+        }
+        const row = await DocsControleBl.create({
+          connaissementId: id,
+          fileUrl: uploaded.url,
+          cloudinaryPublicId: uploaded.publicId || null,
+          originalFilename: file.originalname || null,
+          mimeType: file.mimetype || null,
+          uploadedBy: req.user.id
+        });
+        created.push(formatDocsControle(row));
+      }
+
+      const total = await DocsControleBl.count({ where: { connaissementId: id } });
+      return res.status(201).json({
+        success: true,
+        documents: created,
+        total,
+        max: MAX_DOCS_CONTROLE,
+        remaining: Math.max(0, MAX_DOCS_CONTROLE - total)
+      });
+    } catch (error) {
+      console.error('POST /:id/docs-controle error:', error);
+      return res.status(500).json({
+        message: error.message || 'Erreur lors de l\'upload des pièces jointes'
+      });
+    }
+  }
+);
+
+/**
+ * DELETE /api/connaissements/:id/docs-controle/:docId
+ */
+router.delete('/:id/docs-controle/:docId', async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    const docId = parseInt(String(req.params.docId), 10);
+    if (Number.isNaN(id) || id < 1 || Number.isNaN(docId) || docId < 1) {
+      return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const access = await assertCanManageControleDocs(req, id);
+    if (!access.ok) {
+      return res.status(access.status).json({ message: access.message });
+    }
+
+    const doc = await DocsControleBl.findOne({
+      where: { id: docId, connaissementId: id }
+    });
+    if (!doc) {
+      return res.status(404).json({ message: 'Pièce jointe introuvable' });
+    }
+
+    if (doc.cloudinaryPublicId) {
+      try {
+        const mime = String(doc.mimeType || '');
+        const resourceType = mime.startsWith('image/') ? 'image' : 'raw';
+        await cloudinary.uploader.destroy(doc.cloudinaryPublicId, { resource_type: resourceType });
+      } catch (cloudErr) {
+        console.warn('Cloudinary destroy skipped:', cloudErr.message);
+      }
+    }
+
+    await doc.destroy();
+    const total = await DocsControleBl.count({ where: { connaissementId: id } });
+    return res.json({
+      success: true,
+      total,
+      remaining: Math.max(0, MAX_DOCS_CONTROLE - total)
+    });
+  } catch (error) {
+    console.error('DELETE /:id/docs-controle/:docId error:', error);
+    return res.status(500).json({
+      message: error.message || 'Erreur lors de la suppression'
     });
   }
 });

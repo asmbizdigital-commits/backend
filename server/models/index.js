@@ -90,6 +90,7 @@ const Zone = require('./Zone');
 const Connaissement = require('./Connaissement');
 const DocsFeri = require('./DocsFeri');
 const DocsControleBl = require('./DocsControleBl');
+const ConnexionResponsable = require('./ConnexionResponsable');
 const AssignationBL = require('./AssignationBL');
 const AssignationBLControleur = require('./AssignationBLControleur');
 // Alerte model removed
@@ -319,6 +320,26 @@ DirectionProvinciale.hasMany(User, { foreignKey: 'direction_provinciale_id', as:
 
 User.belongsTo(BureauInternational, { foreignKey: 'bureau_international_id', as: 'BureauInternational' });
 BureauInternational.hasMany(User, { foreignKey: 'bureau_international_id', as: 'Utilisateurs' });
+
+User.hasMany(ConnexionResponsable, { foreignKey: 'utilisateurId', as: 'ConnexionsResponsable' });
+ConnexionResponsable.belongsTo(User, { foreignKey: 'utilisateurId', as: 'Utilisateur' });
+ConnexionResponsable.belongsTo(User, { foreignKey: 'createdBy', as: 'Createur' });
+ConnexionResponsable.belongsTo(DirectionProvinciale, {
+  foreignKey: 'directionProvincialeId',
+  as: 'DirectionProvinciale'
+});
+ConnexionResponsable.belongsTo(BureauInternational, {
+  foreignKey: 'bureauInternationalId',
+  as: 'BureauInternational'
+});
+DirectionProvinciale.hasMany(ConnexionResponsable, {
+  foreignKey: 'directionProvincialeId',
+  as: 'ConnexionsResponsables'
+});
+BureauInternational.hasMany(ConnexionResponsable, {
+  foreignKey: 'bureauInternationalId',
+  as: 'ConnexionsResponsables'
+});
 
 Departement.hasMany(SousDepartement, { foreignKey: 'departement_id', as: 'SousDepartements' });
 SousDepartement.belongsTo(Departement, { foreignKey: 'departement_id', as: 'Departement' });
@@ -1016,6 +1037,7 @@ module.exports = {
   Connaissement,
   DocsFeri,
   DocsControleBl,
+  ConnexionResponsable,
   AssignationBL,
   AssignationBLControleur,
   // Alerte removed

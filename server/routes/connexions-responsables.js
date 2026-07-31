@@ -238,6 +238,48 @@ router.put(
         }
       }
 
+      if (directionIds.length) {
+        const takenDirs = await ConnexionResponsable.findAll({
+          where: {
+            directionProvincialeId: { [Op.in]: directionIds },
+            utilisateurId: { [Op.ne]: userId }
+          },
+          include: [
+            { model: User, as: 'Utilisateur', attributes: ['id', 'nom', 'prenom'] },
+            { model: DirectionProvinciale, as: 'DirectionProvinciale', attributes: ['id', 'nom'] }
+          ]
+        });
+        if (takenDirs.length) {
+          const names = takenDirs
+            .map((r) => r.DirectionProvinciale?.nom || `#${r.directionProvincialeId}`)
+            .join(', ');
+          return res.status(409).json({
+            message: `Direction(s) déjà assignée(s) à un autre responsable : ${names}.`
+          });
+        }
+      }
+
+      if (bureauIds.length) {
+        const takenBureaux = await ConnexionResponsable.findAll({
+          where: {
+            bureauInternationalId: { [Op.in]: bureauIds },
+            utilisateurId: { [Op.ne]: userId }
+          },
+          include: [
+            { model: User, as: 'Utilisateur', attributes: ['id', 'nom', 'prenom'] },
+            { model: BureauInternational, as: 'BureauInternational', attributes: ['id', 'nom'] }
+          ]
+        });
+        if (takenBureaux.length) {
+          const names = takenBureaux
+            .map((r) => r.BureauInternational?.nom || `#${r.bureauInternationalId}`)
+            .join(', ');
+          return res.status(409).json({
+            message: `Bureau(x) déjà assigné(s) à un autre responsable : ${names}.`
+          });
+        }
+      }
+
       await ConnexionResponsable.destroy({ where: { utilisateurId: userId } });
 
       const toCreate = [

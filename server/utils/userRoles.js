@@ -37,6 +37,12 @@ function isManagerBureauRole(role) {
   return String(role || '').trim() === ROLE_MANAGER_BUREAU;
 }
 
+const ROLE_RESPONSABLE_ZONE = 'Responsable Zone';
+
+function isResponsableZoneRole(role) {
+  return String(role || '').trim() === ROLE_RESPONSABLE_ZONE;
+}
+
 function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   if (!assigneeRole || !roleCible) return false;
   if (roleCible === ROLE_VERIFICATEUR_SYGREM) {
@@ -51,6 +57,8 @@ const isRoleControleurSygram = isRoleExploitationControleDossiers;
 module.exports = {
   ROLE_VERIFICATEUR_SYGREM,
   ROLE_CONTROLLEUR_SYGRAM,
+  ROLE_MANAGER_BUREAU,
+  ROLE_RESPONSABLE_ZONE,
   normalizeRole,
   isRoleVerificateurSygrem,
   isRoleControlleurSygram,
@@ -58,5 +66,6 @@ module.exports = {
   isRoleControleurSygram,
   isRoleDirecteurOperations,
   isManagerBureauRole,
+  isResponsableZoneRole,
   assigneeMatchesRoleCible
 };

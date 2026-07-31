@@ -6,12 +6,16 @@ const Connaissement = require('../models/Connaissement');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { isRoleExploitationControleDossiers, isManagerBureauRole } = require('../utils/userRoles');
+const { isRoleExploitationControleDossiers, isManagerBureauRole, isResponsableZoneRole } = require('../utils/userRoles');
 const {
   loadUserGeo,
   buildManagerBureauConnaissementWhere,
   managerBureauCanAccessConnaissement
 } = require('../utils/managerBureauConnaissementAccess');
+const {
+  buildResponsableZoneConnaissementWhere,
+  responsableZoneCanAccessConnaissement
+} = require('../utils/responsableZoneConnaissementAccess');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
 const {
   loadFicheAsmDetail,
@@ -516,7 +520,9 @@ function parseConnPk(idParam) {
 const CONN_ACCESS_ATTRS = ['id', 'zoneConnaissement', 'directionConnaissement', 'bureauConnaissement'];
 
 async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
-  if (!isManagerBureauRole(req.user?.role)) {
+  const needsManager = isManagerBureauRole(req.user?.role);
+  const needsZone = isResponsableZoneRole(req.user?.role);
+  if (!needsManager && !needsZone) {
     return { allowed: true, doc: typeof docOrPk === 'object' ? docOrPk : null };
   }
   const doc =
@@ -526,14 +532,27 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
   if (!doc) {
     return { allowed: false, status: 404, message: 'Connaissement introuvable.' };
   }
-  const userGeo = await loadUserGeo(req.user.id);
-  const allowed = await managerBureauCanAccessConnaissement(userGeo, doc);
-  if (!allowed) {
-    return {
-      allowed: false,
-      status: 403,
-      message: 'Accès non autorisé à ce connaissement (hors de votre zone / direction / bureau).'
-    };
+  if (needsManager) {
+    const userGeo = await loadUserGeo(req.user.id);
+    const allowed = await managerBureauCanAccessConnaissement(userGeo, doc);
+    if (!allowed) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Accès non autorisé à ce connaissement (hors de votre zone / direction / bureau).'
+      };
+    }
+  }
+  if (needsZone) {
+    const allowed = await responsableZoneCanAccessConnaissement(req.user, doc);
+    if (!allowed) {
+      return {
+        allowed: false,
+        status: 403,
+        message:
+          'Accès non autorisé à ce connaissement (hors des directions / bureaux qui vous sont assignés).'
+      };
+    }
   }
   return { allowed: true, doc };
 }
@@ -614,6 +633,14 @@ router.get(
         const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
         if (geoWhere) {
           Object.assign(where, geoWhere);
+        }
+      }
+
+      // Filtre Responsable Zone : directions / bureaux de tbl_connexions_responsables
+      if (!isControleurViewer && isResponsableZoneRole(req.user.role)) {
+        const zoneWhere = await buildResponsableZoneConnaissementWhere(req.user);
+        if (zoneWhere) {
+          Object.assign(where, zoneWhere);
         }
       }
 

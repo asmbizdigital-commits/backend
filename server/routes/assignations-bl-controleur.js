@@ -6,7 +6,12 @@ const Connaissement = require('../models/Connaissement');
 const TaskPro = require('../models/TaskPro');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { assigneeMatchesRoleCible, isRoleDirecteurOperations } = require('../utils/userRoles');
+const {
+  assigneeMatchesRoleCible,
+  isRoleDirecteurOperations,
+  isResponsableZoneRole
+} = require('../utils/userRoles');
+const { responsableZoneCanAccessConnaissement } = require('../utils/responsableZoneConnaissementAccess');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 
 const router = express.Router();
@@ -39,10 +44,17 @@ const emitChanged = (req) => {
 
 function requireCreateurAssignControleur(req, res, next) {
   if (req.user.nom === 'Jimmy') return next();
-  if (req.user.role === 'Administrateur' || isRoleDirecteurOperations(req.user.role)) return next();
+  if (
+    req.user.role === 'Administrateur' ||
+    isRoleDirecteurOperations(req.user.role) ||
+    isResponsableZoneRole(req.user.role)
+  ) {
+    return next();
+  }
   return res.status(403).json({
     success: false,
-    message: 'Seuls un Administrateur ou un Directeur Opérations peuvent assigner un dossier à un Verificateur Sygrem.'
+    message:
+      'Seuls un Administrateur, un Directeur Opérations ou un Responsable Zone peuvent assigner un dossier à un Verificateur Sygrem.'
   });
 }
 
@@ -174,6 +186,20 @@ router.post(
         });
       }
 
+      if (isResponsableZoneRole(req.user.role)) {
+        for (const c of connRows) {
+          const ok = await responsableZoneCanAccessConnaissement(req.user, c);
+          if (!ok) {
+            return res.status(403).json({
+              success: false,
+              message:
+                'Vous ne pouvez assigner que des dossiers de vos directions / bureaux connectés.',
+              forbidden_connaissement_ids: [c.id]
+            });
+          }
+        }
+      }
+
       const invalid = connRows.filter(
         (c) =>
           !c.isDeclared ||
@@ -262,6 +288,17 @@ router.put(
       const row = await AssignationBLControleur.findByPk(req.params.id);
       if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
 
+      if (isResponsableZoneRole(req.user.role)) {
+        const doc = await Connaissement.findByPk(row.connaissementId);
+        const ok = await responsableZoneCanAccessConnaissement(req.user, doc);
+        if (!ok) {
+          return res.status(403).json({
+            success: false,
+            message: 'Vous ne pouvez modifier que des assignations de vos directions / bureaux connectés.'
+          });
+        }
+      }
+
       if (req.body.assignee_id) {
         const assignee = await User.findByPk(parseInt(req.body.assignee_id, 10));
         if (!assignee) return res.status(404).json({ success: false, message: 'Utilisateur cible introuvable' });
@@ -321,6 +358,18 @@ router.delete('/:id', requireCreateurAssignControleur, [param('id').isInt({ min:
 
     const row = await AssignationBLControleur.findByPk(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
+
+    if (isResponsableZoneRole(req.user.role)) {
+      const doc = await Connaissement.findByPk(row.connaissementId);
+      const ok = await responsableZoneCanAccessConnaissement(req.user, doc);
+      if (!ok) {
+        return res.status(403).json({
+          success: false,
+          message: 'Vous ne pouvez supprimer que des assignations de vos directions / bureaux connectés.'
+        });
+      }
+    }
+
     await row.destroy();
 
     emitChanged(req);

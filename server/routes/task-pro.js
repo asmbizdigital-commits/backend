@@ -11,6 +11,9 @@ const SousDepartement = require('../models/SousDepartement');
 const CommentaireTask = require('../models/CommentaireTask');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const CloudinaryImageService = require('../services/cloudinaryImageService');
+const AssignationBL = require('../models/AssignationBL');
+const AssignationBLControleur = require('../models/AssignationBLControleur');
+const { logDossierActivity, ACTION_TYPES } = require('../utils/dossierActivityLog');
 const imageService = new CloudinaryImageService();
 
 const router = express.Router();
@@ -727,6 +730,45 @@ router.put('/:id', [
       } catch (error) {
         console.error('Error updating checklist:', error);
         // Don't fail the update if checklist update fails
+      }
+
+      try {
+        const checklist = Array.isArray(task.checklist)
+          ? task.checklist
+          : typeof task.checklist === 'string'
+            ? JSON.parse(task.checklist || '[]')
+            : task.checklist || [];
+        const completed = checklist.filter((i) => i && i.completed).length;
+        const total = checklist.length;
+
+        const assignBl = await AssignationBL.findOne({
+          where: { taskProId: task.id },
+          order: [['id', 'DESC']]
+        });
+        const assignCtrl = assignBl
+          ? null
+          : await AssignationBLControleur.findOne({
+              where: { taskProId: task.id },
+              order: [['id', 'DESC']]
+            });
+        const link = assignBl || assignCtrl;
+        if (link?.connaissementId) {
+          await logDossierActivity(req, {
+            connaissementId: link.connaissementId,
+            actionType: assignBl
+              ? ACTION_TYPES.CHECKLIST_SAISISSEUR
+              : ACTION_TYPES.CHECKLIST_CONTROLEUR,
+            taskProId: task.id,
+            assignationId: link.id,
+            metadata: {
+              checklist_completed: completed,
+              checklist_total: total,
+              progression: task.progression
+            }
+          });
+        }
+      } catch (logErr) {
+        console.error('dossier activity log (task-pro checklist):', logErr.message);
       }
     }
 

@@ -318,6 +318,7 @@ app.use('/api/bl-documents', connaissementsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
 app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 app.use('/api/connexions-responsables', connexionsResponsablesRoutes);
+app.use('/api/monitoring-phase-test', require('./routes/monitoring-phase-test'));
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));

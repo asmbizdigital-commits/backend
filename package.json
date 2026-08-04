@@ -31,6 +31,7 @@
     "migrate:assignations-connaissements": "node scripts/run-migrate-assignations-fk-connaissements.js",
     "migrate:docs-controle-bl": "node scripts/run-migrate-docs-controle-bl.js",
     "migrate:connexions-responsables": "node scripts/run-migrate-connexions-responsables.js",
+    "migrate:dossier-activity-log": "node scripts/run-migrate-dossier-activity-log.js",
     "migrate:user-role-call-center": "node scripts/run-migrate-user-role-call-center.js",
     "migrate:role-verificateur-sygrem": "node scripts/run-migrate-role-verificateur-sygrem.js",
     "migrate:user-role-responsable-zone-chef-executif": "node scripts/run-migrate-user-role-responsable-zone-chef-executif.js"

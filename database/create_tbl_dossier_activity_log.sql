@@ -1,0 +1,25 @@
+-- Journal des actions dossier (monitoring phase test) — timers + acteurs.
+CREATE TABLE IF NOT EXISTS `tbl_dossier_activity_log` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `connaissement_id` INT NOT NULL,
+  `action_type` VARCHAR(64) NOT NULL,
+  `actor_id` INT NULL,
+  `actor_name` VARCHAR(191) NULL,
+  `actor_role` VARCHAR(100) NULL,
+  `assignee_id` INT NULL,
+  `assignee_name` VARCHAR(191) NULL,
+  `task_pro_id` INT NULL,
+  `assignation_id` INT NULL,
+  `dossier_ref` VARCHAR(191) NULL,
+  `bl_number` VARCHAR(191) NULL,
+  `metadata` JSON NULL,
+  `duration_ms` INT NULL COMMENT 'Durée depuis l’action précédente du même dossier (ou depuis assignation)',
+  `reference_at` DATETIME NULL COMMENT 'Horodatage de référence pour le minuteur',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_dal_connaissement` (`connaissement_id`),
+  KEY `idx_dal_action_type` (`action_type`),
+  KEY `idx_dal_actor` (`actor_id`),
+  KEY `idx_dal_created` (`created_at`),
+  KEY `idx_dal_day_dossier` (`created_at`, `connaissement_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

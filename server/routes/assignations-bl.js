@@ -8,6 +8,7 @@ const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const { sendAssignationBlNotificationEmail } = require('../services/emailService');
+const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -196,6 +197,18 @@ router.post(
           statut: 'Assignée',
           taskProId: task.id,
           assigneParId: req.user.id
+        });
+
+        await logDossierActivity(req, {
+          connaissementId: c.id,
+          actionType: ACTION_TYPES.ASSIGN_SAISISSEUR,
+          assigneeId,
+          assigneeName: personLabel(assignee),
+          taskProId: task.id,
+          assignationId: assignation.id,
+          dossierRef: c.numeroDossier || null,
+          blNumber: c.blNumber || null,
+          metadata: { roleCible, priorite }
         });
 
         created.push(assignation);

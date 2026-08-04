@@ -13,6 +13,7 @@ const {
 } = require('../utils/userRoles');
 const { responsableZoneCanAccessConnaissement } = require('../utils/responsableZoneConnaissementAccess');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
+const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -252,6 +253,18 @@ router.post(
           statut: 'Assignée',
           taskProId: task.id,
           assigneParId: req.user.id
+        });
+
+        await logDossierActivity(req, {
+          connaissementId: bl.id,
+          actionType: ACTION_TYPES.ASSIGN_CONTROLEUR,
+          assigneeId,
+          assigneeName: personLabel(assignee),
+          taskProId: task.id,
+          assignationId: assignation.id,
+          dossierRef: bl.numeroDossier || null,
+          blNumber: bl.blNumber || null,
+          metadata: { roleCible, priorite }
         });
 
         created.push(assignation);

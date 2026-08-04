@@ -17,6 +17,7 @@ const {
   responsableZoneCanAccessConnaissement
 } = require('../utils/responsableZoneConnaissementAccess');
 const { formatConnaissementForClient } = require('../utils/connaissementApiFormat');
+const { logDossierActivity, ACTION_TYPES } = require('../utils/dossierActivityLog');
 const {
   loadFicheAsmDetail,
   loadUnifiedExtract,
@@ -1094,6 +1095,13 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
             : String(body.numero_fxi)
           : doc.numeroFeri;
 
+    const wasExported = Boolean(doc.isExported);
+    const wasDeclared = Boolean(doc.isDeclared);
+    const wasControlled = Boolean(doc.isControlledByController);
+    const wasValidated = Boolean(doc.isValidated);
+    const prevDeclaration = doc.declarationNumber;
+    const prevFeri = doc.numeroFeri;
+
     await doc.update({
       blNumber: blNext,
       numeroDossier:
@@ -1185,6 +1193,74 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
           ? parseOptionalFk(body.bureau_connaissement ?? body.bureauConnaissement)
           : doc.bureauConnaissement
     });
+
+    try {
+      const baseMeta = {
+        numero_dossier: doc.numeroDossier,
+        bl_number: doc.blNumber
+      };
+      if (body.is_exported === true && !wasExported) {
+        await logDossierActivity(req, {
+          connaissementId: doc.id,
+          actionType: ACTION_TYPES.EXPORT_SYGREM,
+          dossierRef: doc.numeroDossier,
+          blNumber: doc.blNumber,
+          metadata: baseMeta
+        });
+      }
+      if (
+        body.is_declared === true ||
+        (body.declaration_number != null &&
+          String(body.declaration_number).trim() &&
+          String(body.declaration_number) !== String(prevDeclaration || ''))
+      ) {
+        if (!wasDeclared || String(body.declaration_number || '') !== String(prevDeclaration || '')) {
+          await logDossierActivity(req, {
+            connaissementId: doc.id,
+            actionType: ACTION_TYPES.ADD_DECLARATION,
+            dossierRef: doc.numeroDossier,
+            blNumber: doc.blNumber,
+            metadata: {
+              ...baseMeta,
+              declaration_number: body.declaration_number ?? doc.declarationNumber
+            }
+          });
+        }
+      }
+      if (body.is_controlled_by_controller === true && !wasControlled) {
+        await logDossierActivity(req, {
+          connaissementId: doc.id,
+          actionType: ACTION_TYPES.CONTROLE_VALIDATION,
+          dossierRef: doc.numeroDossier,
+          blNumber: doc.blNumber,
+          metadata: {
+            ...baseMeta,
+            annotation: body.annotation_controlleur || null,
+            datetime_annotation: body.datetime_annotation || null
+          }
+        });
+      }
+      if (
+        (body.is_validated === true && !wasValidated) ||
+        (body.numero_feri != null &&
+          String(body.numero_feri).trim() &&
+          String(body.numero_feri) !== String(prevFeri || ''))
+      ) {
+        await logDossierActivity(req, {
+          connaissementId: doc.id,
+          actionType: ACTION_TYPES.ADD_FERI,
+          dossierRef: doc.numeroDossier,
+          blNumber: doc.blNumber,
+          metadata: {
+            ...baseMeta,
+            numero_feri: nextNumeroFeri,
+            is_validated: body.is_validated === true || wasValidated
+          }
+        });
+      }
+    } catch (logErr) {
+      console.error('dossier activity log (connaissements PATCH):', logErr.message);
+    }
 
     emitConnaissementsChanged(req);
     await doc.reload({ include: CONN_GEO_INCLUDES });

@@ -3,6 +3,9 @@ const { Op } = require('sequelize');
 const { authenticateToken } = require('../middleware/auth');
 const { requireMonitoringPhaseTestAccess } = require('../utils/monitoringPhaseTestAccess');
 const DossierActivityLog = require('../models/DossierActivityLog');
+const Connaissement = require('../models/Connaissement');
+const Zone = require('../models/Zone');
+const BureauInternational = require('../models/BureauInternational');
 const {
   ACTION_LABELS_FR,
   SLA_MS,
@@ -50,6 +53,44 @@ function serializeEvent(row) {
     score: scoreFromDuration(plain.actionType, plain.durationMs),
     slaMs: SLA_MS[plain.actionType] || null
   };
+}
+
+async function loadGeoByConnaissementIds(ids) {
+  const geoMap = new Map();
+  if (!ids.length) return geoMap;
+
+  const rows = await Connaissement.findAll({
+    where: { id: { [Op.in]: ids } },
+    attributes: ['id', 'zoneConnaissement', 'bureauConnaissement'],
+    include: [
+      {
+        model: Zone,
+        as: 'Zone',
+        attributes: ['id', 'code', 'nom'],
+        required: false
+      },
+      {
+        model: BureauInternational,
+        as: 'BureauInternational',
+        attributes: ['id', 'nom', 'code', 'ville', 'pays'],
+        required: false
+      }
+    ]
+  });
+
+  for (const row of rows) {
+    const plain = row.toJSON ? row.toJSON() : row;
+    geoMap.set(String(plain.id), {
+      zoneId: plain.zoneConnaissement ?? plain.Zone?.id ?? null,
+      zoneLabel: plain.Zone?.nom || plain.Zone?.code || null,
+      bureauId: plain.bureauConnaissement ?? plain.BureauInternational?.id ?? null,
+      bureauLabel:
+        plain.BureauInternational?.nom ||
+        plain.BureauInternational?.code ||
+        null
+    });
+  }
+  return geoMap;
 }
 
 /**
@@ -131,6 +172,12 @@ router.get('/today', async (req, res) => {
       a.byAction[ev.actionType] = (a.byAction[ev.actionType] || 0) + 1;
     }
 
+    const geoMap = await loadGeoByConnaissementIds(
+      Array.from(dossiersMap.keys())
+        .map((id) => parseInt(id, 10))
+        .filter((id) => !Number.isNaN(id) && id > 0)
+    );
+
     const dossiers = Array.from(dossiersMap.values())
       .map((d) => {
         const cycleMs =
@@ -140,6 +187,7 @@ router.get('/today', async (req, res) => {
         let evalScore = 'good';
         if (d.scores.critical > 0) evalScore = 'critical';
         else if (d.scores.warn > 0) evalScore = 'warn';
+        const geo = geoMap.get(String(d.connaissementId)) || {};
         return {
           ...d,
           actors: Array.from(d.actors),
@@ -148,6 +196,10 @@ router.get('/today', async (req, res) => {
           cycleLabel: formatDuration(cycleMs),
           totalDurationLabel: formatDuration(d.totalDurationMs),
           evalScore,
+          zoneId: geo.zoneId ?? null,
+          zoneLabel: geo.zoneLabel ?? null,
+          bureauId: geo.bureauId ?? null,
+          bureauLabel: geo.bureauLabel ?? null,
           events: d.events.sort(
             (x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime()
           )

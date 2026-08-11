@@ -27,6 +27,7 @@ const {
 } = require('../services/connaissementFicheAsmService');
 const { sendSygremExportNotificationEmail } = require('../services/emailService');
 const DocsFeri = require('../models/DocsFeri');
+const DocsZip = require('../models/DocsZip');
 const DocsControleBl = require('../models/DocsControleBl');
 const multer = require('multer');
 const path = require('path');
@@ -53,6 +54,20 @@ const router = express.Router();
 router.use(authenticateToken);
 
 function formatDocsFeri(doc) {
+  if (!doc) return null;
+  const plain = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  return {
+    id: plain.id,
+    doc_connaissement_id: plain.docConnaissementId ?? plain.doc_connaissement_id,
+    file_url: plain.fileUrl ?? plain.file_url,
+    cloudinary_public_id: plain.cloudinaryPublicId ?? plain.cloudinary_public_id,
+    original_filename: plain.originalFilename ?? plain.original_filename,
+    created_at: plain.createdAt ?? plain.created_at,
+    updated_at: plain.updatedAt ?? plain.updated_at
+  };
+}
+
+function formatDocsZip(doc) {
   if (!doc) return null;
   const plain = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
   return {
@@ -198,6 +213,34 @@ router.get('/:id/docs-feri', async (req, res) => {
     console.error('GET /:id/docs-feri error:', error);
     return res.status(500).json({
       message: error.message || 'Erreur lors du chargement des pièces jointes FERI'
+    });
+  }
+});
+
+/**
+ * GET /api/connaissements/:id/docs-zip
+ * Archive(s) ZIP liée(s) à un connaissement.
+ */
+router.get('/:id/docs-zip', async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const docs = await DocsZip.findAll({
+      where: { docConnaissementId: id },
+      order: [['id', 'ASC']]
+    });
+
+    return res.json({
+      success: true,
+      documents: docs.map(formatDocsZip)
+    });
+  } catch (error) {
+    console.error('GET /:id/docs-zip error:', error);
+    return res.status(500).json({
+      message: error.message || 'Erreur lors du chargement des archives ZIP'
     });
   }
 });
@@ -637,7 +680,7 @@ router.get(
         }
       }
 
-      // Filtre Responsable Zone : directions / bureaux de tbl_connexions_responsables
+      // Filtre Responsable Zone : uniquement directions / bureaux de tbl_connexions_responsables
       if (!isControleurViewer && isResponsableZoneRole(req.user.role)) {
         const zoneWhere = await buildResponsableZoneConnaissementWhere(req.user);
         if (zoneWhere) {

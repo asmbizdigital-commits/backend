@@ -161,12 +161,14 @@ router.get('/today', async (req, res) => {
           actorRole: ev.actorRole,
           actionsCount: 0,
           totalDurationMs: 0,
+          dossierIds: new Set(),
           scores: { good: 0, warn: 0, critical: 0, unknown: 0 },
           byAction: {}
         });
       }
       const a = actorsMap.get(aKey);
       a.actionsCount += 1;
+      if (ev.connaissementId != null) a.dossierIds.add(String(ev.connaissementId));
       if (ev.durationMs != null) a.totalDurationMs += ev.durationMs;
       a.scores[ev.score] = (a.scores[ev.score] || 0) + 1;
       a.byAction[ev.actionType] = (a.byAction[ev.actionType] || 0) + 1;
@@ -218,8 +220,10 @@ router.get('/today', async (req, res) => {
           if (criticalRate >= 0.25) evalScore = 'critical';
           else if (warnRate + criticalRate >= 0.35) evalScore = 'warn';
         }
+        const { dossierIds, ...actorRest } = a;
         return {
-          ...a,
+          ...actorRest,
+          dossiersCount: dossierIds.size,
           avgDurationMs: avg,
           avgDurationLabel: formatDuration(avg),
           totalDurationLabel: formatDuration(a.totalDurationMs),

@@ -15,8 +15,10 @@ const Demande = require('../models/Demande');
 const Plainte = require('../models/Plainte');
 const TaskPro = require('../models/TaskPro');
 const DemandeConge = require('../models/DemandeConge');
+const { getCached, setCached } = require('../utils/responseCache');
 
 const router = express.Router();
+const DASHBOARD_STATS_CACHE_MS = 30 * 1000;
 
 // Apply authentication to all routes
 router.use(authenticateToken);
@@ -24,6 +26,12 @@ router.use(authenticateToken);
 // GET /api/dashboard/stats - Get comprehensive dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
+    const cacheKey = `dashboard:stats:${req.user?.id || 'anon'}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const { Op } = require('sequelize');
     
     // Get all statistics in parallel for better performance
@@ -698,6 +706,7 @@ router.get('/stats', async (req, res) => {
     console.log('🚀 Dashboard response includes supervisorRHStats:', !!response.supervisorRHStats);
     console.log('🚀 SupervisorRHStats value:', JSON.stringify(response.supervisorRHStats));
     console.log('🚀 EmployesPresentsAujourdhui:', response.supervisorRHStats?.employesPresentsAujourdhui);
+    setCached(cacheKey, response, DASHBOARD_STATS_CACHE_MS);
     res.json(response);
 
   } catch (error) {

@@ -86,9 +86,8 @@ router.post('/login', [
       });
     }
 
-    // Update last login
-    user.derniere_connexion = new Date();
-    await user.save();
+    // Update last login (sans toucher mot_de_passe → évite rehash accidentel)
+    await user.update({ derniere_connexion: new Date() });
 
     // Generate token
     const token = generateToken(user.id);

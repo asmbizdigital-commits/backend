@@ -87,6 +87,7 @@ const assignationsBLControleurRoutes = require('./routes/assignations-bl-control
 const connexionsResponsablesRoutes = require('./routes/connexions-responsables');
 
 const app = express();
+app.set('trust proxy', 1); // Render / reverse proxy — rate limit par IP client réelle
 // Socket.io for realtime notifications
 const http = require('http').createServer(app);
 const { Server } = require('socket.io');
@@ -155,38 +156,20 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting - More permissive for development
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // More requests allowed in development
-  message: {
-    error: 'Too many requests from this IP',
-    message: 'Trop de requêtes depuis cette adresse IP'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Apply rate limiting to all routes
-app.use('/api/', limiter);
-
-// CORS configuration - Autorise toutes les origines
+// CORS en premier — les réponses 429 du rate limiter doivent inclure Access-Control-Allow-Origin
 app.use(cors({
-  origin: true, // reflète l'origine de la requête (accepte toute source)
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'X-File-Name'],
   exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 }));
 
-// Handle preflight requests
 app.options('*', cors());
 
-// Additional CORS headers - toute origine acceptée
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  // Avec credentials: true, on doit renvoyer l'origine demandée (pas *)
   if (origin) {
     res.header('Access-Control-Allow-Origin', origin);
   } else {
@@ -196,14 +179,70 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-File-Name');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
-  
+
   if (req.method === 'OPTIONS') {
-    console.log(`🔄 Preflight request handled for: ${req.originalUrl}`);
     res.status(200).end();
     return;
   }
   next();
 });
+
+function rateLimitWithCors(req, res, _next, options) {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  res.status(options.statusCode).json(options.message);
+}
+
+// Rate limiting — login strict, API générale plus permissive (évite déconnexions sous charge)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    error: 'Too many login attempts',
+    message: 'Trop de tentatives de connexion. Réessayez dans quelques minutes.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitWithCors
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 2500 : 2000,
+  message: {
+    error: 'Too many requests from this IP',
+    message: 'Trop de requêtes depuis cette adresse IP. Réessayez dans quelques instants.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitWithCors,
+  skip: (req) => {
+    if (req.method === 'OPTIONS') return true;
+    if (req.method === 'POST' && req.path === '/auth/login') return true;
+    if (req.method === 'GET' && req.path === '/auth/me') return true;
+    if (req.method === 'GET' && req.path === '/health') return true;
+    if (req.method === 'GET' && req.path === '/connaissements') return true;
+    if (req.method === 'GET' && req.path === '/assignations-bl') return true;
+    if (req.method === 'GET' && req.path === '/assignations-bl-controleur') return true;
+    if (req.method === 'GET' && req.path === '/dashboard/stats') return true;
+    if (req.method === 'GET' && req.path === '/monitoring-phase-test/today') return true;
+    if (
+      req.method === 'GET' &&
+      (/^\/connaissements\/\d+\/docs-(feri|zip|controle)$/.test(req.path) ||
+        /^\/connaissements\/\d+\/docs$/.test(req.path) ||
+        req.path === '/connaissements/docs-feri')
+    ) {
+      return true;
+    }
+    return false;
+  }
+});
+
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/', apiLimiter);
 
 // Body parsing middleware with increased limits
 app.use(express.json({ 

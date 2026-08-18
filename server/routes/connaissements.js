@@ -246,6 +246,55 @@ router.get('/:id/docs-zip', async (req, res) => {
 });
 
 /**
+ * GET /api/connaissements/:id/docs
+ * Pièces jointes groupées (feri, zip, controle) — une requête au lieu de 2–3.
+ */
+router.get('/:id/docs', async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (Number.isNaN(id) || id < 1) {
+      return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const types = String(req.query.types || 'feri,zip,controle')
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    const wantFeri = types.includes('feri');
+    const wantZip = types.includes('zip');
+    const wantControle = types.includes('controle');
+
+    const [feriDocs, zipDocs, controleDocs] = await Promise.all([
+      wantFeri
+        ? DocsFeri.findAll({ where: { docConnaissementId: id }, order: [['id', 'ASC']] })
+        : Promise.resolve([]),
+      wantZip
+        ? DocsZip.findAll({ where: { docConnaissementId: id }, order: [['id', 'ASC']] })
+        : Promise.resolve([]),
+      wantControle
+        ? DocsControleBl.findAll({ where: { connaissementId: id }, order: [['id', 'ASC']] })
+        : Promise.resolve([])
+    ]);
+
+    const payload = { success: true };
+    if (wantFeri) payload.feri = feriDocs.map(formatDocsFeri);
+    if (wantZip) payload.zip = zipDocs.map(formatDocsZip);
+    if (wantControle) {
+      payload.controle = controleDocs.map(formatDocsControle);
+      payload.maxControle = MAX_DOCS_CONTROLE;
+      payload.remainingControle = Math.max(0, MAX_DOCS_CONTROLE - controleDocs.length);
+    }
+
+    return res.json(payload);
+  } catch (error) {
+    console.error('GET /:id/docs error:', error);
+    return res.status(500).json({
+      message: error.message || 'Erreur lors du chargement des pièces jointes'
+    });
+  }
+});
+
+/**
  * GET /api/connaissements/:id/docs-controle
  * Liste des pièces jointes de contrôle (max 5).
  */
@@ -481,10 +530,13 @@ router.post('/notify-sygrem-export', async (req, res) => {
   }
 });
 
-function emitConnaissementsChanged(req) {
+function emitConnaissementsChanged(req, connaissementId = null) {
   const io = req.app.get('io');
   if (io) {
-    io.emit('connaissements:changed', { at: new Date().toISOString() });
+    io.emit('connaissements:changed', {
+      at: new Date().toISOString(),
+      id: connaissementId != null ? Number(connaissementId) : null
+    });
   }
 }
 
@@ -601,6 +653,81 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
   return { allowed: true, doc };
 }
 
+async function enrichConnaissementRows(rows) {
+  const blIds = rows.map((d) => d.id);
+  const bvByConnId = new Map();
+  if (blIds.length > 0) {
+    const douaniers = await sequelize.query(
+      `SELECT connaissement_id, bv_number FROM documents_douaniers
+       WHERE connaissement_id IN (:ids)`,
+      {
+        replacements: { ids: blIds },
+        type: QueryTypes.SELECT
+      }
+    );
+    for (const dd of douaniers) {
+      if (dd?.connaissement_id != null) {
+        bvByConnId.set(Number(dd.connaissement_id), dd.bv_number || '');
+      }
+    }
+  }
+
+  const assignationByNormId = new Map();
+  if (blIds.length > 0) {
+    const assignations = await AssignationBLControleur.findAll({
+      where: {
+        connaissementId: { [Op.in]: blIds },
+        statut: { [Op.ne]: 'Annulée' }
+      },
+      attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+      order: [['created_at', 'DESC']]
+    });
+    for (const a of assignations) {
+      const k = normConnId(a.connaissementId);
+      if (k && !assignationByNormId.has(k)) assignationByNormId.set(k, a);
+    }
+  }
+
+  const assigneeIds = [...new Set([...assignationByNormId.values()].map((a) => a.assigneeId).filter(Boolean))];
+  const userById = new Map();
+  if (assigneeIds.length > 0) {
+    const users = await User.findAll({
+      where: { id: { [Op.in]: assigneeIds } },
+      attributes: ['id', 'prenom', 'nom', 'role']
+    });
+    for (const u of users) userById.set(u.id, u);
+  }
+
+  return rows.map((doc) => {
+    const json = formatConnaissementForClient(doc);
+    json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
+    json.bv_number = json.bvNumber;
+    const k = normConnId(doc.id);
+    const ass = k ? assignationByNormId.get(k) : null;
+    if (ass && ass.assigneeId) {
+      const assignee = userById.get(ass.assigneeId);
+      json.controleAssignee = assignee
+        ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom }
+        : { id: ass.assigneeId, prenom: '', nom: '' };
+    } else {
+      json.controleAssignee = null;
+    }
+    return json;
+  });
+}
+
+function maxTimestampFromRows(rows) {
+  let maxTs = null;
+  for (const row of rows) {
+    const plain = typeof row.toJSON === 'function' ? row.toJSON() : row;
+    const ts = plain.updatedAt || plain.updated_at || plain.createdAt || plain.created_at;
+    if (ts && (!maxTs || new Date(ts) > new Date(maxTs))) {
+      maxTs = ts;
+    }
+  }
+  return maxTs ? new Date(maxTs).toISOString() : null;
+}
+
 /**
  * GET /api/connaissements (et alias /api/bl-documents)
  */
@@ -608,8 +735,11 @@ router.get(
   '/',
   [
     query('since').optional().isString().trim(),
+    query('updated_since').optional().isString().trim(),
+    query('ids').optional().isString().trim(),
+    query('page').optional().isInt({ min: 1 }),
     query('status').optional().isString().trim(),
-    query('limit').optional().isInt({ min: 1, max: 2000 })
+    query('limit').optional().isInt({ min: 1, max: 500 })
   ],
   async (req, res) => {
     try {
@@ -622,9 +752,26 @@ router.get(
         });
       }
 
-      const { since, status, limit = 500 } = req.query;
+      const { since, updated_since: updatedSince, ids: idsRaw, status } = req.query;
+      const pageNum = Math.max(1, parseInt(String(req.query.page || 1), 10) || 1);
+      const limitNum = Math.min(500, Math.max(1, parseInt(String(req.query.limit || 200), 10) || 200));
+      const fetchByIds = String(idsRaw || '').trim();
+
       const where = {};
       const isControleurViewer = isRoleExploitationControleDossiers(req.user.role);
+
+      if (fetchByIds) {
+        const idList = [...new Set(
+          fetchByIds
+            .split(',')
+            .map((v) => parseInt(String(v).trim(), 10))
+            .filter((n) => !Number.isNaN(n) && n > 0)
+        )];
+        if (!idList.length) {
+          return res.status(400).json({ success: false, message: 'Aucun id connaissement valide' });
+        }
+        where.id = { [Op.in]: idList };
+      }
 
       if (since) {
         const d = new Date(since);
@@ -633,8 +780,13 @@ router.get(
         }
       }
 
-      // Les filtres status ne s'appliquent PAS aux contrôleurs/vérificateurs :
-      // dès qu'un admin leur assigne un dossier, il doit être visible même non validé.
+      if (updatedSince) {
+        const d = new Date(updatedSince);
+        if (!Number.isNaN(d.getTime())) {
+          where.updatedAt = { [Op.gt]: d };
+        }
+      }
+
       if (!isControleurViewer) {
         if (status === 'validated' || status === 'processed') where.isValidated = true;
         else if (status === 'declared') where.isDeclared = true;
@@ -654,24 +806,46 @@ router.get(
           },
           attributes: ['connaissementId']
         });
-        const ids = [...new Set(assignRows.map((r) => r.connaissementId).filter(Boolean))];
-        if (ids.length === 0) {
+        const assignedIds = [...new Set(assignRows.map((r) => r.connaissementId).filter(Boolean))];
+        if (assignedIds.length === 0) {
           return res.json({
             success: true,
             documents: [],
             count: 0,
+            total: 0,
+            page: pageNum,
+            limit: limitNum,
+            hasMore: false,
+            maxUpdatedAt: null,
             source: 'connaissements',
             scope: 'assigned_controleur'
           });
         }
-        // Uniquement les dossiers assignés — aucun filtre zone / isValidated / isDeclared
-        where.id = { [Op.in]: ids };
+        if (where.id?.[Op.in]) {
+          const allowed = new Set(assignedIds.map(Number));
+          where.id = { [Op.in]: where.id[Op.in].filter((id) => allowed.has(Number(id))) };
+          if (!where.id[Op.in].length) {
+            return res.json({
+              success: true,
+              documents: [],
+              count: 0,
+              total: 0,
+              page: pageNum,
+              limit: limitNum,
+              hasMore: false,
+              maxUpdatedAt: null,
+              source: 'connaissements',
+              scope: 'assigned_controleur'
+            });
+          }
+        } else {
+          where.id = { [Op.in]: assignedIds };
+        }
         delete where.isValidated;
         delete where.isDeclared;
         delete where.isExported;
       }
 
-      // Filtre geo Manager Bureau : jamais pour un contrôleur/vérificateur
       if (!isControleurViewer && isManagerBureauRole(req.user.role)) {
         const userGeo = await loadUserGeo(req.user.id);
         const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
@@ -680,7 +854,6 @@ router.get(
         }
       }
 
-      // Filtre Responsable Zone : uniquement directions / bureaux de tbl_connexions_responsables
       if (!isControleurViewer && isResponsableZoneRole(req.user.role)) {
         const zoneWhere = await buildResponsableZoneConnaissementWhere(req.user);
         if (zoneWhere) {
@@ -688,79 +861,48 @@ router.get(
         }
       }
 
-      const rows = await Connaissement.findAll({
+      const usePagination = !fetchByIds && !updatedSince;
+      const queryOptions = {
         where,
         include: CONN_GEO_INCLUDES,
-        order: [['created_at', 'DESC']],
-        limit: parseInt(limit, 10)
-      });
+        order: [['updatedAt', 'DESC'], ['createdAt', 'DESC']],
+        distinct: true
+      };
 
-      const blIds = rows.map((d) => d.id);
-      const bvByConnId = new Map();
-      if (blIds.length > 0) {
-        const douaniers = await sequelize.query(
-          `SELECT connaissement_id, bv_number FROM documents_douaniers
-           WHERE connaissement_id IN (:ids)`,
-          {
-            replacements: { ids: blIds },
-            type: QueryTypes.SELECT
-          }
-        );
-        for (const dd of douaniers) {
-          if (dd?.connaissement_id != null) {
-            bvByConnId.set(Number(dd.connaissement_id), dd.bv_number || '');
-          }
-        }
-      }
-
-      const assignationByNormId = new Map();
-      if (blIds.length > 0) {
-        const assignations = await AssignationBLControleur.findAll({
-          where: {
-            connaissementId: { [Op.in]: blIds },
-            statut: { [Op.ne]: 'Annulée' }
-          },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt'],
-          order: [['created_at', 'DESC']]
+      let rows;
+      let total = 0;
+      if (usePagination) {
+        const result = await Connaissement.findAndCountAll({
+          ...queryOptions,
+          limit: limitNum,
+          offset: (pageNum - 1) * limitNum
         });
-        for (const a of assignations) {
-          const k = normConnId(a.connaissementId);
-          if (k && !assignationByNormId.has(k)) assignationByNormId.set(k, a);
-        }
-      }
-
-      const assigneeIds = [...new Set([...assignationByNormId.values()].map((a) => a.assigneeId).filter(Boolean))];
-      const userById = new Map();
-      if (assigneeIds.length > 0) {
-        const users = await User.findAll({
-          where: { id: { [Op.in]: assigneeIds } },
-          attributes: ['id', 'prenom', 'nom', 'role']
+        rows = result.rows;
+        total = result.count;
+      } else {
+        rows = await Connaissement.findAll({
+          ...queryOptions,
+          limit: fetchByIds ? limitNum : Math.min(limitNum, 500)
         });
-        for (const u of users) userById.set(u.id, u);
+        total = rows.length;
       }
 
-      const documentsPayload = rows.map((doc) => {
-        const json = formatConnaissementForClient(doc);
-        json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
-        json.bv_number = json.bvNumber;
-        const k = normConnId(doc.id);
-        const ass = k ? assignationByNormId.get(k) : null;
-        if (ass && ass.assigneeId) {
-          const assignee = userById.get(ass.assigneeId);
-          json.controleAssignee = assignee
-            ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom }
-            : { id: ass.assigneeId, prenom: '', nom: '' };
-        } else {
-          json.controleAssignee = null;
-        }
-        return json;
-      });
+      const documentsPayload = await enrichConnaissementRows(rows);
+      const maxUpdatedAt = maxTimestampFromRows(rows);
+      const hasMore = usePagination ? pageNum * limitNum < total : false;
 
       res.json({
         success: true,
         documents: documentsPayload,
         count: documentsPayload.length,
-        source: 'connaissements'
+        total: usePagination ? total : documentsPayload.length,
+        page: pageNum,
+        limit: limitNum,
+        hasMore,
+        maxUpdatedAt,
+        serverTime: new Date().toISOString(),
+        source: 'connaissements',
+        ...(isControleurViewer ? { scope: 'assigned_controleur' } : {})
       });
     } catch (error) {
       const parent = error.parent ?? error.original ?? null;
@@ -847,7 +989,7 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       dateEmail: body.date_email ?? null
     });
 
-    emitConnaissementsChanged(req);
+    emitConnaissementsChanged(req, row.id);
 
     res.status(201).json({
       success: true,
@@ -937,7 +1079,7 @@ router.post('/:id/ingest-unified', express.json({ limit: '2mb' }), async (req, r
       return res.status(access.status).json({ success: false, message: access.message });
     }
     const detail = await ingestUnifiedExtract(pk, req.body || {});
-    emitConnaissementsChanged(req);
+    emitConnaissementsChanged(req, pk);
     return res.json({ success: true, detail });
   } catch (error) {
     if (error.message === 'NOT_FOUND') {
@@ -972,7 +1114,7 @@ router.patch('/:id/article-items', express.json({ limit: '512kb' }), async (req,
       });
     }
     const detail = await saveCommercialInvoiceItems(pk, items);
-    emitConnaissementsChanged(req);
+    emitConnaissementsChanged(req, pk);
     return res.json({ success: true, detail });
   } catch (error) {
     if (error.message === 'NOT_FOUND') {
@@ -1007,7 +1149,7 @@ router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, re
       return res.status(access.status).json({ success: false, message: access.message });
     }
     const detail = await saveFicheAsmDetail(pk, req.body || {});
-    emitConnaissementsChanged(req);
+    emitConnaissementsChanged(req, pk);
     return res.json({ success: true, detail });
   } catch (error) {
     if (error.message === 'NOT_FOUND') {
@@ -1305,7 +1447,7 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       console.error('dossier activity log (connaissements PATCH):', logErr.message);
     }
 
-    emitConnaissementsChanged(req);
+    emitConnaissementsChanged(req, doc.id);
     await doc.reload({ include: CONN_GEO_INCLUDES });
     return res.json({
       success: true,

@@ -540,30 +540,6 @@ function emitConnaissementsChanged(req, connaissementId = null) {
   }
 }
 
-/** Erreurs MySQL typiques : schéma pas à jour ou migration manquante. */
-function isDbSchemaMisalignedError(error) {
-  const parent = error?.parent ?? error?.original ?? null;
-  const sqlMessage =
-    typeof parent?.sqlMessage === 'string'
-      ? parent.sqlMessage
-      : typeof error?.sqlMessage === 'string'
-        ? error.sqlMessage
-        : '';
-  const code = parent?.code;
-  const errno = parent?.errno;
-  if (
-    code === 'ER_NO_SUCH_TABLE' ||
-    code === 'ER_BAD_FIELD_ERROR' ||
-    errno === 1146 ||
-    errno === 1054
-  ) {
-    return true;
-  }
-  return /doesn't exist|n'existe pas|Unknown column|Table .* doesn't exist/i.test(
-    `${sqlMessage} ${error?.message || ''}`
-  );
-}
-
 const normConnId = (id) => String(id ?? '').trim();
 
 /** Création par défaut (colonnes NOT NULL métier sans valeur en base). */
@@ -865,20 +841,22 @@ router.get(
       const queryOptions = {
         where,
         include: CONN_GEO_INCLUDES,
-        order: [['updatedAt', 'DESC'], ['createdAt', 'DESC']],
-        distinct: true
+        order: [['created_at', 'DESC']]
       };
 
       let rows;
       let total = 0;
       if (usePagination) {
-        const result = await Connaissement.findAndCountAll({
-          ...queryOptions,
-          limit: limitNum,
-          offset: (pageNum - 1) * limitNum
-        });
-        rows = result.rows;
-        total = result.count;
+        const [foundRows, counted] = await Promise.all([
+          Connaissement.findAll({
+            ...queryOptions,
+            limit: limitNum,
+            offset: (pageNum - 1) * limitNum
+          }),
+          Connaissement.count({ where })
+        ]);
+        rows = foundRows;
+        total = counted;
       } else {
         rows = await Connaissement.findAll({
           ...queryOptions,
@@ -908,16 +886,9 @@ router.get(
       const parent = error.parent ?? error.original ?? null;
       const sqlMessage = parent?.sqlMessage || '';
       console.error('GET /api/connaissements', error.message, sqlMessage || '');
-      const schemaIssue = isDbSchemaMisalignedError(error);
-      const exposeDetail =
-        process.env.EXPOSE_API_ERRORS === 'true' || process.env.NODE_ENV !== 'production';
-      res.status(schemaIssue ? 503 : 500).json({
+      res.status(500).json({
         success: false,
-        message: schemaIssue
-          ? 'Schéma base de données incomplet : exécuter sur le serveur (même DATABASE_URL/MySQL que Render) : npm run migrate:asmproclient puis npm run migrate:assignations-connaissements.'
-          : 'Erreur lors de la lecture des connaissements',
-        ...(schemaIssue ? { reason: 'db_schema_mismatch' } : {}),
-        ...(exposeDetail && sqlMessage ? { detail: sqlMessage } : {})
+        message: 'Erreur lors de la lecture des connaissements'
       });
     }
   }

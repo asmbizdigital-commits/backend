@@ -703,11 +703,25 @@ async function enrichConnaissementRows(rows) {
     }
   }
 
+  const supportClientIds = [
+    ...new Set(
+      rows
+        .map((d) => {
+          const plain = typeof d.toJSON === 'function' ? d.toJSON() : d;
+          return plain.controleParId ?? plain.controle_par_id ?? null;
+        })
+        .filter((id) => id != null && id !== '')
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  ];
+
   const assigneeIds = [
     ...new Set(
-      [...controleAssignByNormId.values(), ...saisiAssignByNormId.values()]
-        .map((a) => a.assigneeId)
-        .filter(Boolean)
+      [
+        ...[...controleAssignByNormId.values(), ...saisiAssignByNormId.values()].map((a) => a.assigneeId),
+        ...supportClientIds
+      ].filter(Boolean)
     )
   ];
   const userById = new Map();
@@ -727,6 +741,16 @@ async function enrichConnaissementRows(rows) {
       : { id: ass.assigneeId, prenom: '', nom: '' };
   };
 
+  const toUserPayload = (userId) => {
+    if (userId == null || userId === '') return null;
+    const id = Number(userId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const assignee = userById.get(id);
+    return assignee
+      ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom, role: assignee.role }
+      : { id, prenom: '', nom: '' };
+  };
+
   return rows.map((doc) => {
     const json = formatConnaissementForClient(doc);
     json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
@@ -734,6 +758,8 @@ async function enrichConnaissementRows(rows) {
     const k = normConnId(doc.id);
     json.controleAssignee = toAssigneePayload(k ? controleAssignByNormId.get(k) : null);
     json.saisiAssignee = toAssigneePayload(k ? saisiAssignByNormId.get(k) : null);
+    /** Support client (call center) = utilisateur lié via controle_par_id */
+    json.supportClientAssignee = toUserPayload(json.controleParId ?? json.controle_par_id);
     return json;
   });
 }

@@ -716,7 +716,7 @@ async function enrichConnaissementRows(rows) {
       rows
         .map((d) => {
           const plain = typeof d.toJSON === 'function' ? d.toJSON() : d;
-          return plain.controleParId ?? plain.controle_par_id ?? null;
+          return plain.idSupportClient ?? plain.id_support_client ?? null;
         })
         .filter((id) => id != null && id !== '')
         .map((id) => Number(id))
@@ -773,8 +773,17 @@ async function enrichConnaissementRows(rows) {
     const k = normConnId(doc.id);
     json.controleAssignee = toAssigneePayload(k ? controleAssignByNormId.get(k) : null);
     json.saisiAssignee = toAssigneePayload(k ? saisiAssignByNormId.get(k) : null);
-    /** Support client (call center) = utilisateur lié via controle_par_id */
-    json.supportClientAssignee = toUserPayload(json.controleParId ?? json.controle_par_id);
+    /** Support client = id_support_client → users (fallback nom_support_client). */
+    const supportId = json.idSupportClient ?? json.id_support_client;
+    const fromUser = toUserPayload(supportId);
+    if (fromUser && (`${fromUser.prenom || ''} ${fromUser.nom || ''}`.trim() || fromUser.id)) {
+      json.supportClientAssignee = fromUser;
+    } else {
+      const nom = String(json.nomSupportClient ?? json.nom_support_client ?? '').trim();
+      json.supportClientAssignee = nom
+        ? { id: supportId || null, prenom: '', nom, role: 'call_center' }
+        : null;
+    }
     return json;
   });
 }

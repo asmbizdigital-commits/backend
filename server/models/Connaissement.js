@@ -66,6 +66,9 @@ const Connaissement = sequelize.define(
     controleParId: { type: DataTypes.INTEGER, field: 'controle_par_id' },
     controlePar: { type: DataTypes.STRING(255), field: 'controle_par' },
     dateControle: { type: DataTypes.DATE, field: 'date_controle' },
+    /** Call center / support client (distinct de controle_par_* et des assignations contrôle). */
+    idSupportClient: { type: DataTypes.INTEGER, field: 'id_support_client' },
+    nomSupportClient: { type: DataTypes.STRING(255), field: 'nom_support_client' },
     declarationNumber: { type: DataTypes.STRING(128), field: 'declaration_number' },
     isExported: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_exported' },
     isDeclared: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_declared' },

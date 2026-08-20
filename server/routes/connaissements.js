@@ -4,9 +4,15 @@ const { Op, QueryTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 const Connaissement = require('../models/Connaissement');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
+const AssignationBL = require('../models/AssignationBL');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
-const { isRoleExploitationControleDossiers, isManagerBureauRole, isResponsableZoneRole } = require('../utils/userRoles');
+const {
+  isRoleExploitationControleDossiers,
+  isSaisisseurRole,
+  isManagerBureauRole,
+  isResponsableZoneRole
+} = require('../utils/userRoles');
 const {
   loadUserGeo,
   buildManagerBureauConnaissementWhere,
@@ -592,9 +598,10 @@ function parseConnPk(idParam) {
 const CONN_ACCESS_ATTRS = ['id', 'zoneConnaissement', 'directionConnaissement', 'bureauConnaissement'];
 
 async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
+  const needsSaisisseur = isSaisisseurRole(req.user?.role);
   const needsManager = isManagerBureauRole(req.user?.role);
   const needsZone = isResponsableZoneRole(req.user?.role);
-  if (!needsManager && !needsZone) {
+  if (!needsSaisisseur && !needsManager && !needsZone) {
     return { allowed: true, doc: typeof docOrPk === 'object' ? docOrPk : null };
   }
   const doc =
@@ -603,6 +610,23 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
       : await Connaissement.findByPk(docOrPk, { attributes: CONN_ACCESS_ATTRS });
   if (!doc) {
     return { allowed: false, status: 404, message: 'Connaissement introuvable.' };
+  }
+  if (needsSaisisseur) {
+    const assignation = await AssignationBL.findOne({
+      where: {
+        connaissementId: doc.id,
+        assigneeId: req.user.id,
+        statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
+      },
+      attributes: ['id']
+    });
+    if (!assignation) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Accès non autorisé : ce dossier ne vous est pas assigné.'
+      };
+    }
   }
   if (needsManager) {
     const userGeo = await loadUserGeo(req.user.id);
@@ -735,6 +759,7 @@ router.get(
 
       const where = {};
       const isControleurViewer = isRoleExploitationControleDossiers(req.user.role);
+      const isSaisisseurViewer = isSaisisseurRole(req.user.role);
 
       if (fetchByIds) {
         const idList = [...new Set(
@@ -822,7 +847,52 @@ router.get(
         delete where.isExported;
       }
 
-      if (!isControleurViewer && isManagerBureauRole(req.user.role)) {
+      if (isSaisisseurViewer) {
+        const assignRows = await AssignationBL.findAll({
+          where: {
+            assigneeId: req.user.id,
+            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
+          },
+          attributes: ['connaissementId']
+        });
+        const assignedIds = [...new Set(assignRows.map((r) => r.connaissementId).filter(Boolean))];
+        if (assignedIds.length === 0) {
+          return res.json({
+            success: true,
+            documents: [],
+            count: 0,
+            total: 0,
+            page: pageNum,
+            limit: limitNum,
+            hasMore: false,
+            maxUpdatedAt: null,
+            source: 'connaissements',
+            scope: 'assigned_saisisseur'
+          });
+        }
+        if (where.id?.[Op.in]) {
+          const allowed = new Set(assignedIds.map(Number));
+          where.id = { [Op.in]: where.id[Op.in].filter((id) => allowed.has(Number(id))) };
+          if (!where.id[Op.in].length) {
+            return res.json({
+              success: true,
+              documents: [],
+              count: 0,
+              total: 0,
+              page: pageNum,
+              limit: limitNum,
+              hasMore: false,
+              maxUpdatedAt: null,
+              source: 'connaissements',
+              scope: 'assigned_saisisseur'
+            });
+          }
+        } else {
+          where.id = { [Op.in]: assignedIds };
+        }
+      }
+
+      if (!isControleurViewer && !isSaisisseurViewer && isManagerBureauRole(req.user.role)) {
         const userGeo = await loadUserGeo(req.user.id);
         const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
         if (geoWhere) {
@@ -830,7 +900,7 @@ router.get(
         }
       }
 
-      if (!isControleurViewer && isResponsableZoneRole(req.user.role)) {
+      if (!isControleurViewer && !isSaisisseurViewer && isResponsableZoneRole(req.user.role)) {
         const zoneWhere = await buildResponsableZoneConnaissementWhere(req.user);
         if (zoneWhere) {
           Object.assign(where, zoneWhere);
@@ -869,6 +939,12 @@ router.get(
       const maxUpdatedAt = maxTimestampFromRows(rows);
       const hasMore = usePagination ? pageNum * limitNum < total : false;
 
+      const scope = isControleurViewer
+        ? 'assigned_controleur'
+        : isSaisisseurViewer
+          ? 'assigned_saisisseur'
+          : undefined;
+
       res.json({
         success: true,
         documents: documentsPayload,
@@ -880,7 +956,7 @@ router.get(
         maxUpdatedAt,
         serverTime: new Date().toISOString(),
         source: 'connaissements',
-        ...(isControleurViewer ? { scope: 'assigned_controleur' } : {})
+        ...(scope ? { scope } : {})
       });
     } catch (error) {
       const parent = error.parent ?? error.original ?? null;

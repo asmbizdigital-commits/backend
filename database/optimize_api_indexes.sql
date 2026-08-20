@@ -1,23 +1,12 @@
--- Index recommandés pour réduire la charge API (monitoring, connaissements, activité dossiers)
--- Exécuter une fois en production après revue des noms de tables.
+-- Index API — idempotent (exécuter via npm run migrate:optimize-api-indexes)
+-- Compatible MySQL 5.7 / 8 : le script JS vérifie information_schema avant CREATE.
+-- Ne pas lancer migrate:asmproclient (DROP TABLE).
 
-CREATE INDEX IF NOT EXISTS idx_dossier_activity_created
-  ON tbl_dossier_activity_log (created_at);
+-- 1) connaissements.created_at (liste GET /api/connaissements ORDER BY created_at DESC)
+-- 2) tbl_dossier_activity_log (connaissement_id, created_at) pour last-event + /today
+-- 3) tbl_docs_feri.doc_connaissement_id (GET docs-feri)
+-- 4) tbl_assignation_bl_controleur (connaissement_id, statut) — table réelle SANS « s »
 
-CREATE INDEX IF NOT EXISTS idx_dossier_activity_conn_created
-  ON tbl_dossier_activity_log (connaissement_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_connaissements_created
-  ON connaissements (created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_docs_douaniers_conn
-  ON documents_douaniers (connaissement_id);
-
-CREATE INDEX IF NOT EXISTS idx_docs_feri_conn
-  ON tbl_docs_feri (doc_connaissement_id);
-
-CREATE INDEX IF NOT EXISTS idx_docs_zip_conn
-  ON tbl_docs_zip (doc_connaissement_id);
-
-CREATE INDEX IF NOT EXISTS idx_assign_bl_controleur_conn
-  ON tbl_assignations_bl_controleur (connaissement_id, statut);
+-- Les index suivants existent déjà dans les CREATE TABLE et sont volontairement omis :
+--   idx_dal_created, idx_connaissement_id (documents_douaniers),
+--   uq_docs_zip_connaissement, idx_assign_bl_ctrl_connaissement_id

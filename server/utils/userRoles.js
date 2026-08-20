@@ -33,6 +33,11 @@ function isRoleDirecteurOperations(role) {
   return normalizeRole(role) === 'directeur operations';
 }
 
+function isSaisisseurRole(role) {
+  const n = normalizeRole(role);
+  return n === 'saisisseur' || n.includes('saisisseur');
+}
+
 function isManagerBureauRole(role) {
   return String(role || '').trim() === ROLE_MANAGER_BUREAU;
 }
@@ -65,6 +70,7 @@ module.exports = {
   isRoleExploitationControleDossiers,
   isRoleControleurSygram,
   isRoleDirecteurOperations,
+  isSaisisseurRole,
   isManagerBureauRole,
   isResponsableZoneRole,
   assigneeMatchesRoleCible

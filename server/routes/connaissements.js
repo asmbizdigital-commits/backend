@@ -672,23 +672,44 @@ async function enrichConnaissementRows(rows) {
     }
   }
 
-  const assignationByNormId = new Map();
+  const controleAssignByNormId = new Map();
+  const saisiAssignByNormId = new Map();
   if (blIds.length > 0) {
-    const assignations = await AssignationBLControleur.findAll({
-      where: {
-        connaissementId: { [Op.in]: blIds },
-        statut: { [Op.ne]: 'Annulée' }
-      },
-      attributes: ['connaissementId', 'assigneeId', 'createdAt'],
-      order: [['created_at', 'DESC']]
-    });
-    for (const a of assignations) {
+    const [controleAssignations, saisiAssignations] = await Promise.all([
+      AssignationBLControleur.findAll({
+        where: {
+          connaissementId: { [Op.in]: blIds },
+          statut: { [Op.ne]: 'Annulée' }
+        },
+        attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+        order: [['created_at', 'DESC']]
+      }),
+      AssignationBL.findAll({
+        where: {
+          connaissementId: { [Op.in]: blIds },
+          statut: { [Op.ne]: 'Annulée' }
+        },
+        attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+        order: [['created_at', 'DESC']]
+      })
+    ]);
+    for (const a of controleAssignations) {
       const k = normConnId(a.connaissementId);
-      if (k && !assignationByNormId.has(k)) assignationByNormId.set(k, a);
+      if (k && !controleAssignByNormId.has(k)) controleAssignByNormId.set(k, a);
+    }
+    for (const a of saisiAssignations) {
+      const k = normConnId(a.connaissementId);
+      if (k && !saisiAssignByNormId.has(k)) saisiAssignByNormId.set(k, a);
     }
   }
 
-  const assigneeIds = [...new Set([...assignationByNormId.values()].map((a) => a.assigneeId).filter(Boolean))];
+  const assigneeIds = [
+    ...new Set(
+      [...controleAssignByNormId.values(), ...saisiAssignByNormId.values()]
+        .map((a) => a.assigneeId)
+        .filter(Boolean)
+    )
+  ];
   const userById = new Map();
   if (assigneeIds.length > 0) {
     const users = await User.findAll({
@@ -698,20 +719,21 @@ async function enrichConnaissementRows(rows) {
     for (const u of users) userById.set(u.id, u);
   }
 
+  const toAssigneePayload = (ass) => {
+    if (!ass?.assigneeId) return null;
+    const assignee = userById.get(ass.assigneeId);
+    return assignee
+      ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom, role: assignee.role }
+      : { id: ass.assigneeId, prenom: '', nom: '' };
+  };
+
   return rows.map((doc) => {
     const json = formatConnaissementForClient(doc);
     json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
     json.bv_number = json.bvNumber;
     const k = normConnId(doc.id);
-    const ass = k ? assignationByNormId.get(k) : null;
-    if (ass && ass.assigneeId) {
-      const assignee = userById.get(ass.assigneeId);
-      json.controleAssignee = assignee
-        ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom }
-        : { id: ass.assigneeId, prenom: '', nom: '' };
-    } else {
-      json.controleAssignee = null;
-    }
+    json.controleAssignee = toAssigneePayload(k ? controleAssignByNormId.get(k) : null);
+    json.saisiAssignee = toAssigneePayload(k ? saisiAssignByNormId.get(k) : null);
     return json;
   });
 }

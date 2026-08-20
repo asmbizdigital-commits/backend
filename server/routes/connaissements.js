@@ -961,18 +961,19 @@ router.get(
       }
 
       const sortMap = {
-        created_at: 'created_at',
-        updated_at: 'updated_at',
-        bl_number: 'bl_number',
-        numero_dossier: 'numero_dossier',
-        vessel: 'vessel_name',
-        dateMaj: 'created_at',
-        updated: 'updated_at',
-        reference: 'numero_dossier',
-        numeroBL: 'bl_number',
-        blNumber: 'bl_number'
+        created_at: 'createdAt',
+        updated_at: 'updatedAt',
+        bl_number: 'blNumber',
+        numero_dossier: 'numeroDossier',
+        vessel: 'vesselName',
+        vessel_name: 'vesselName',
+        dateMaj: 'createdAt',
+        updated: 'updatedAt',
+        reference: 'numeroDossier',
+        numeroBL: 'blNumber',
+        blNumber: 'blNumber'
       };
-      const sortCol = sortMap[String(sortByRaw || '').trim()] || 'created_at';
+      const sortCol = sortMap[String(sortByRaw || '').trim()] || 'createdAt';
       const sortDir = String(sortDirRaw || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       const usePagination = !fetchByIds && !updatedSince;

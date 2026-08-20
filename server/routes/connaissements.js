@@ -654,52 +654,60 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
 }
 
 async function enrichConnaissementRows(rows) {
-  const blIds = rows.map((d) => d.id);
+  const blIds = (rows || []).map((d) => d.id).filter((id) => id != null);
   const bvByConnId = new Map();
   if (blIds.length > 0) {
-    const douaniers = await sequelize.query(
-      `SELECT connaissement_id, bv_number FROM documents_douaniers
-       WHERE connaissement_id IN (:ids)`,
-      {
-        replacements: { ids: blIds },
-        type: QueryTypes.SELECT
+    try {
+      const douaniers = await sequelize.query(
+        `SELECT connaissement_id, bv_number FROM documents_douaniers
+         WHERE connaissement_id IN (:ids)`,
+        {
+          replacements: { ids: blIds },
+          type: QueryTypes.SELECT
+        }
+      );
+      for (const dd of douaniers) {
+        if (dd?.connaissement_id != null) {
+          bvByConnId.set(Number(dd.connaissement_id), dd.bv_number || '');
+        }
       }
-    );
-    for (const dd of douaniers) {
-      if (dd?.connaissement_id != null) {
-        bvByConnId.set(Number(dd.connaissement_id), dd.bv_number || '');
-      }
+    } catch (err) {
+      console.error('enrichConnaissementRows documents_douaniers:', err.message);
     }
   }
 
   const controleAssignByNormId = new Map();
   const saisiAssignByNormId = new Map();
   if (blIds.length > 0) {
-    const [controleAssignations, saisiAssignations] = await Promise.all([
-      AssignationBLControleur.findAll({
-        where: {
-          connaissementId: { [Op.in]: blIds },
-          statut: { [Op.ne]: 'Annulée' }
-        },
-        attributes: ['connaissementId', 'assigneeId', 'createdAt'],
-        order: [['created_at', 'DESC']]
-      }),
-      AssignationBL.findAll({
-        where: {
-          connaissementId: { [Op.in]: blIds },
-          statut: { [Op.ne]: 'Annulée' }
-        },
-        attributes: ['connaissementId', 'assigneeId', 'createdAt'],
-        order: [['created_at', 'DESC']]
-      })
-    ]);
-    for (const a of controleAssignations) {
-      const k = normConnId(a.connaissementId);
-      if (k && !controleAssignByNormId.has(k)) controleAssignByNormId.set(k, a);
-    }
-    for (const a of saisiAssignations) {
-      const k = normConnId(a.connaissementId);
-      if (k && !saisiAssignByNormId.has(k)) saisiAssignByNormId.set(k, a);
+    try {
+      const [controleAssignations, saisiAssignations] = await Promise.all([
+        AssignationBLControleur.findAll({
+          where: {
+            connaissementId: { [Op.in]: blIds },
+            statut: { [Op.ne]: 'Annulée' }
+          },
+          attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+          order: [['createdAt', 'DESC']]
+        }),
+        AssignationBL.findAll({
+          where: {
+            connaissementId: { [Op.in]: blIds },
+            statut: { [Op.ne]: 'Annulée' }
+          },
+          attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+          order: [['createdAt', 'DESC']]
+        })
+      ]);
+      for (const a of controleAssignations) {
+        const k = normConnId(a.connaissementId);
+        if (k && !controleAssignByNormId.has(k)) controleAssignByNormId.set(k, a);
+      }
+      for (const a of saisiAssignations) {
+        const k = normConnId(a.connaissementId);
+        if (k && !saisiAssignByNormId.has(k)) saisiAssignByNormId.set(k, a);
+      }
+    } catch (err) {
+      console.error('enrichConnaissementRows assignations:', err.message);
     }
   }
 
@@ -721,24 +729,31 @@ async function enrichConnaissementRows(rows) {
       [
         ...[...controleAssignByNormId.values(), ...saisiAssignByNormId.values()].map((a) => a.assigneeId),
         ...supportClientIds
-      ].filter(Boolean)
+      ]
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
     )
   ];
   const userById = new Map();
   if (assigneeIds.length > 0) {
-    const users = await User.findAll({
-      where: { id: { [Op.in]: assigneeIds } },
-      attributes: ['id', 'prenom', 'nom', 'role']
-    });
-    for (const u of users) userById.set(u.id, u);
+    try {
+      const users = await User.findAll({
+        where: { id: { [Op.in]: assigneeIds } },
+        attributes: ['id', 'prenom', 'nom', 'role']
+      });
+      for (const u of users) userById.set(Number(u.id), u);
+    } catch (err) {
+      console.error('enrichConnaissementRows users:', err.message);
+    }
   }
 
   const toAssigneePayload = (ass) => {
     if (!ass?.assigneeId) return null;
-    const assignee = userById.get(ass.assigneeId);
+    const assigneeId = Number(ass.assigneeId);
+    const assignee = userById.get(assigneeId);
     return assignee
       ? { id: assignee.id, prenom: assignee.prenom, nom: assignee.nom, role: assignee.role }
-      : { id: ass.assigneeId, prenom: '', nom: '' };
+      : { id: assigneeId, prenom: '', nom: '' };
   };
 
   const toUserPayload = (userId) => {

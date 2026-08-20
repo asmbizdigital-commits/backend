@@ -739,6 +739,10 @@ router.get(
     query('ids').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }),
     query('status').optional().isString().trim(),
+    query('stage').optional().isString().trim(),
+    query('q').optional().isString().trim(),
+    query('sort_by').optional().isString().trim(),
+    query('sort_dir').optional().isIn(['asc', 'desc', 'ASC', 'DESC']),
     query('limit').optional().isInt({ min: 1, max: 500 })
   ],
   async (req, res) => {
@@ -752,10 +756,21 @@ router.get(
         });
       }
 
-      const { since, updated_since: updatedSince, ids: idsRaw, status } = req.query;
+      const {
+        since,
+        updated_since: updatedSince,
+        ids: idsRaw,
+        status,
+        stage: stageRaw,
+        q: qRaw,
+        sort_by: sortByRaw,
+        sort_dir: sortDirRaw
+      } = req.query;
       const pageNum = Math.max(1, parseInt(String(req.query.page || 1), 10) || 1);
       const limitNum = Math.min(500, Math.max(1, parseInt(String(req.query.limit || 200), 10) || 200));
       const fetchByIds = String(idsRaw || '').trim();
+      const stage = String(stageRaw || '').trim().toLowerCase();
+      const searchQ = String(qRaw || '').trim();
 
       const where = {};
       const isControleurViewer = isRoleExploitationControleDossiers(req.user.role);
@@ -788,7 +803,25 @@ router.get(
         }
       }
 
-      if (!isControleurViewer) {
+      const hasNumeroDossier = {
+        [Op.and]: [{ numeroDossier: { [Op.ne]: null } }, { numeroDossier: { [Op.ne]: '' } }]
+      };
+      const noNumeroDossier = {
+        [Op.or]: [{ numeroDossier: null }, { numeroDossier: '' }]
+      };
+
+      // Stages métier (pagination onglets Traitement / Contrôle).
+      if (stage === 'bl-extracteur') {
+        Object.assign(where, noNumeroDossier);
+      } else if (stage === 'saisi' || stage === 'saisi-dossier') {
+        Object.assign(where, hasNumeroDossier, { isExported: false });
+      } else if (stage === 'declaration' || stage === 'controle-conformite') {
+        Object.assign(where, hasNumeroDossier, { isExported: true, isDeclared: false });
+      } else if (stage === 'cloture-controle') {
+        Object.assign(where, hasNumeroDossier, { isDeclared: true, isValidated: false });
+      } else if (stage === 'controle-dossiers') {
+        Object.assign(where, hasNumeroDossier, { isValidated: true });
+      } else if (!isControleurViewer) {
         if (status === 'validated' || status === 'processed') where.isValidated = true;
         else if (status === 'declared') where.isDeclared = true;
         else if (status === 'exported') where.isExported = true;
@@ -797,6 +830,23 @@ router.get(
           where.isDeclared = false;
           where.isExported = false;
         }
+      }
+
+      if (searchQ) {
+        const like = `%${searchQ}%`;
+        where[Op.and] = [
+          ...(Array.isArray(where[Op.and]) ? where[Op.and] : where[Op.and] ? [where[Op.and]] : []),
+          {
+            [Op.or]: [
+              { blNumber: { [Op.like]: like } },
+              { numeroDossier: { [Op.like]: like } },
+              { vesselName: { [Op.like]: like } },
+              { consigneeName: { [Op.like]: like } },
+              { controlePar: { [Op.like]: like } },
+              { numeroFeri: { [Op.like]: like } }
+            ]
+          }
+        ];
       }
 
       if (isControleurViewer) {
@@ -842,9 +892,12 @@ router.get(
         } else {
           where.id = { [Op.in]: assignedIds };
         }
-        delete where.isValidated;
-        delete where.isDeclared;
-        delete where.isExported;
+        // Sans stage explicite : tous les dossiers assignés (historique).
+        if (!stage) {
+          delete where.isValidated;
+          delete where.isDeclared;
+          delete where.isExported;
+        }
       }
 
       if (isSaisisseurViewer) {
@@ -907,11 +960,26 @@ router.get(
         }
       }
 
+      const sortMap = {
+        created_at: 'created_at',
+        updated_at: 'updated_at',
+        bl_number: 'bl_number',
+        numero_dossier: 'numero_dossier',
+        vessel: 'vessel_name',
+        dateMaj: 'created_at',
+        updated: 'updated_at',
+        reference: 'numero_dossier',
+        numeroBL: 'bl_number',
+        blNumber: 'bl_number'
+      };
+      const sortCol = sortMap[String(sortByRaw || '').trim()] || 'created_at';
+      const sortDir = String(sortDirRaw || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
       const usePagination = !fetchByIds && !updatedSince;
       const queryOptions = {
         where,
         include: CONN_GEO_INCLUDES,
-        order: [['created_at', 'DESC']]
+        order: [[sortCol, sortDir]]
       };
 
       let rows;
@@ -956,7 +1024,8 @@ router.get(
         maxUpdatedAt,
         serverTime: new Date().toISOString(),
         source: 'connaissements',
-        ...(scope ? { scope } : {})
+        ...(scope ? { scope } : {}),
+        ...(stage ? { stage } : {})
       });
     } catch (error) {
       const parent = error.parent ?? error.original ?? null;

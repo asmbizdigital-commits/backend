@@ -9,7 +9,8 @@ const { authenticateToken } = require('../middleware/auth');
 const {
   assigneeMatchesRoleCible,
   isRoleDirecteurOperations,
-  isResponsableZoneRole
+  isResponsableZoneRole,
+  isRoleExploitationControleDossiers
 } = require('../utils/userRoles');
 const { responsableZoneCanAccessConnaissement } = require('../utils/responsableZoneConnaissementAccess');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
@@ -80,14 +81,20 @@ router.get(
       const limit = parseInt(req.query.limit || '100', 10);
       const offset = (page - 1) * limit;
       const where = {};
-      if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
+      if (isRoleExploitationControleDossiers(req.user?.role)) {
+        // Un vérificateur / contrôleur ne voit que ses propres assignations.
+        where.assigneeId = req.user.id;
+        where.statut = { [Op.in]: ['Assignée', 'En cours', 'Terminée'] };
+      } else {
+        if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
+        if (req.query.statut) where.statut = req.query.statut;
+      }
       if (req.query.connaissement_id) {
         where.connaissementId = parseInt(req.query.connaissement_id, 10);
       } else if (req.query.bl_document_id) {
         const cid = parseInt(String(req.query.bl_document_id).trim(), 10);
         if (!Number.isNaN(cid)) where.connaissementId = cid;
       }
-      if (req.query.statut) where.statut = req.query.statut;
 
       const { count, rows } = await AssignationBLControleur.findAndCountAll({
         where,
@@ -131,6 +138,12 @@ router.get('/:id', [param('id').isInt({ min: 1 })], async (req, res) => {
       ]
     });
     if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
+    if (
+      isRoleExploitationControleDossiers(req.user?.role) &&
+      Number(row.assigneeId) !== Number(req.user.id)
+    ) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé à cette assignation.' });
+    }
     res.json({ success: true, assignation: row });
   } catch (error) {
     console.error('GET /api/assignations-bl-controleur/:id', error);

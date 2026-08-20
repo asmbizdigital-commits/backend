@@ -1023,27 +1023,32 @@ router.get(
         }
       }
 
+      // Noms de colonnes SQL (underscored) — les attributs camelCase cassent le ORDER BY MySQL.
       const sortMap = {
-        created_at: 'createdAt',
-        updated_at: 'updatedAt',
-        bl_number: 'blNumber',
-        numero_dossier: 'numeroDossier',
-        vessel: 'vesselName',
-        vessel_name: 'vesselName',
-        dateMaj: 'createdAt',
-        updated: 'updatedAt',
-        reference: 'numeroDossier',
-        numeroBL: 'blNumber',
-        blNumber: 'blNumber'
+        created_at: 'created_at',
+        updated_at: 'updated_at',
+        bl_number: 'bl_number',
+        numero_dossier: 'numero_dossier',
+        vessel: 'vessel_name',
+        vessel_name: 'vessel_name',
+        dateMaj: 'created_at',
+        updated: 'updated_at',
+        reference: 'numero_dossier',
+        numeroBL: 'bl_number',
+        blNumber: 'bl_number',
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+        numeroDossier: 'numero_dossier',
+        vesselName: 'vessel_name'
       };
-      const sortCol = sortMap[String(sortByRaw || '').trim()] || 'createdAt';
+      const sortCol = sortMap[String(sortByRaw || '').trim()] || 'created_at';
       const sortDir = String(sortDirRaw || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
       const usePagination = !fetchByIds && !updatedSince;
       const queryOptions = {
         where,
         include: CONN_GEO_INCLUDES,
-        order: [[sortCol, sortDir]]
+        order: [[sequelize.col(`Connaissement.${sortCol}`), sortDir]]
       };
 
       let rows;

@@ -922,9 +922,10 @@ router.get(
       }
 
       if (isControleurViewer) {
+        const userId = parseInt(String(req.user.id), 10);
         const assignRows = await AssignationBLControleur.findAll({
           where: {
-            assigneeId: req.user.id,
+            assigneeId: Number.isFinite(userId) ? userId : req.user.id,
             statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
           attributes: ['connaissementId']

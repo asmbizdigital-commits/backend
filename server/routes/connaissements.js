@@ -686,7 +686,7 @@ async function enrichConnaissementRows(rows) {
             connaissementId: { [Op.in]: blIds },
             statut: { [Op.ne]: 'Annulée' }
           },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite'],
           order: [['createdAt', 'DESC']]
         }),
         AssignationBL.findAll({
@@ -694,7 +694,7 @@ async function enrichConnaissementRows(rows) {
             connaissementId: { [Op.in]: blIds },
             statut: { [Op.ne]: 'Annulée' }
           },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt'],
+          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite'],
           order: [['createdAt', 'DESC']]
         })
       ]);
@@ -771,8 +771,14 @@ async function enrichConnaissementRows(rows) {
     json.bvNumber = bvByConnId.get(Number(doc.id)) || '';
     json.bv_number = json.bvNumber;
     const k = normConnId(doc.id);
-    json.controleAssignee = toAssigneePayload(k ? controleAssignByNormId.get(k) : null);
-    json.saisiAssignee = toAssigneePayload(k ? saisiAssignByNormId.get(k) : null);
+    const controleAss = k ? controleAssignByNormId.get(k) : null;
+    const saisiAss = k ? saisiAssignByNormId.get(k) : null;
+    json.controleAssignee = toAssigneePayload(controleAss);
+    json.saisiAssignee = toAssigneePayload(saisiAss);
+    json.controlePriorite = controleAss?.priorite || null;
+    json.controle_priorite = json.controlePriorite;
+    json.saisiPriorite = saisiAss?.priorite || null;
+    json.saisi_priorite = json.saisiPriorite;
     /** Support client = id_support_client → users (fallback nom_support_client). */
     const supportId = json.idSupportClient ?? json.id_support_client;
     const fromUser = toUserPayload(supportId);

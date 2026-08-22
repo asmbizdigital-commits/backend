@@ -14,9 +14,69 @@ const CloudinaryImageService = require('../services/cloudinaryImageService');
 const AssignationBL = require('../models/AssignationBL');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
 const { logDossierActivity, ACTION_TYPES } = require('../utils/dossierActivityLog');
+const { isResponsableZoneRole } = require('../utils/userRoles');
 const imageService = new CloudinaryImageService();
 
 const router = express.Router();
+
+/** IDs des tâches créées via assignation contrôle par ce Responsable Zone. */
+async function getResponsableZoneControleTaskIds(userId) {
+  const uid = parseInt(String(userId), 10);
+  if (!Number.isFinite(uid)) return [];
+  const rows = await AssignationBLControleur.findAll({
+    where: { assigneParId: uid },
+    attributes: ['taskProId']
+  });
+  return [...new Set(rows.map((r) => r.taskProId).filter(Boolean).map(Number))];
+}
+
+/**
+ * Restreint le where Sequelize aux tâches contrôle assignées par le RZ courant.
+ * @returns {{ empty: boolean }}
+ */
+async function applyResponsableZoneControleTaskScope(whereClause, req) {
+  if (!isResponsableZoneRole(req.user?.role)) return { empty: false };
+  const ids = await getResponsableZoneControleTaskIds(req.user.id);
+  if (!ids.length) {
+    whereClause.id = { [Op.in]: [-1] };
+    return { empty: true };
+  }
+  if (whereClause.id && whereClause.id[Op.in]) {
+    const allowed = new Set(ids);
+    const filtered = whereClause.id[Op.in]
+      .map((id) => Number(id))
+      .filter((id) => allowed.has(id));
+    whereClause.id = { [Op.in]: filtered.length ? filtered : [-1] };
+    return { empty: filtered.length === 0 };
+  }
+  if (whereClause.id != null && typeof whereClause.id !== 'object') {
+    const id = Number(whereClause.id);
+    if (!ids.includes(id)) {
+      whereClause.id = { [Op.in]: [-1] };
+      return { empty: true };
+    }
+    return { empty: false };
+  }
+  whereClause.id = { [Op.in]: ids };
+  return { empty: false };
+}
+
+function emptyKanbanColumns() {
+  return {
+    'À faire': [],
+    'En cours': [],
+    'En révision': [],
+    'Terminé': [],
+    'Bloqué': [],
+    'Annulé': []
+  };
+}
+
+async function assertResponsableZoneCanAccessTask(req, taskId) {
+  if (!isResponsableZoneRole(req.user?.role)) return true;
+  const allowedIds = await getResponsableZoneControleTaskIds(req.user.id);
+  return allowedIds.includes(Number(taskId));
+}
 
 /** Parse YYYY-MM-DD en borne locale (évite le décalage UTC de new Date('YYYY-MM-DD')). */
 function parseLocalDateBoundary(isoDateStr, endOfDay = false) {
@@ -186,6 +246,7 @@ router.get('/', [
 
     const { date_from, date_to } = req.query;
     applyDateCreationRange(whereClause, date_from, date_to);
+    await applyResponsableZoneControleTaskScope(whereClause, req);
 
     // Order by position for Kanban view
     const order = view === 'kanban' 
@@ -291,6 +352,10 @@ router.get('/kanban', async (req, res) => {
     }
 
     applyDateCreationRange(whereClause, date_from, date_to);
+    const scope = await applyResponsableZoneControleTaskScope(whereClause, req);
+    if (scope.empty) {
+      return res.json({ columns: emptyKanbanColumns() });
+    }
 
     const tasks = await TaskPro.findAll({
       where: whereClause,
@@ -311,14 +376,7 @@ router.get('/kanban', async (req, res) => {
     });
 
     // Organize tasks by columns
-    const columns = {
-      'À faire': [],
-      'En cours': [],
-      'En révision': [],
-      'Terminé': [],
-      'Bloqué': [],
-      'Annulé': []
-    };
+    const columns = emptyKanbanColumns();
 
     tasks.forEach(task => {
       const column = task.colonne_kanban || task.statut;
@@ -342,32 +400,39 @@ router.get('/kanban', async (req, res) => {
 // GET /api/task-pro/stats - Get statistics
 router.get('/stats', async (req, res) => {
   try {
+    const baseWhere = { supprime: false, archive: false };
+    await applyResponsableZoneControleTaskScope(baseWhere, req);
+
     // Use colonne_kanban for stats to match the Kanban view (more reliable than statut)
     const stats = {
-      total: await TaskPro.count({ where: { supprime: false, archive: false } }),
+      total: await TaskPro.count({ where: { ...baseWhere } }),
       par_statut: {
-        a_faire: await TaskPro.count({ where: { colonne_kanban: 'À faire', supprime: false, archive: false } }),
-        en_cours: await TaskPro.count({ where: { colonne_kanban: 'En cours', supprime: false, archive: false } }),
-        en_revision: await TaskPro.count({ where: { colonne_kanban: 'En révision', supprime: false, archive: false } }),
-        termine: await TaskPro.count({ where: { colonne_kanban: 'Terminé', supprime: false, archive: false } }),
-        bloque: await TaskPro.count({ where: { colonne_kanban: 'Bloqué', supprime: false, archive: false } }),
-        annule: await TaskPro.count({ where: { colonne_kanban: 'Annulé', supprime: false, archive: false } })
+        a_faire: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'À faire' } }),
+        en_cours: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'En cours' } }),
+        en_revision: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'En révision' } }),
+        termine: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'Terminé' } }),
+        bloque: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'Bloqué' } }),
+        annule: await TaskPro.count({ where: { ...baseWhere, colonne_kanban: 'Annulé' } })
       },
       par_priorite: {
-        basse: await TaskPro.count({ where: { priorite: 'Basse', supprime: false, archive: false } }),
-        normale: await TaskPro.count({ where: { priorite: 'Normale', supprime: false, archive: false } }),
-        haute: await TaskPro.count({ where: { priorite: 'Haute', supprime: false, archive: false } }),
-        urgente: await TaskPro.count({ where: { priorite: 'Urgente', supprime: false, archive: false } })
+        basse: await TaskPro.count({ where: { ...baseWhere, priorite: 'Basse' } }),
+        normale: await TaskPro.count({ where: { ...baseWhere, priorite: 'Normale' } }),
+        haute: await TaskPro.count({ where: { ...baseWhere, priorite: 'Haute' } }),
+        urgente: await TaskPro.count({ where: { ...baseWhere, priorite: 'Urgente' } })
       },
       en_retard: await TaskPro.count({
         where: {
+          ...baseWhere,
           date_echeance: { [Op.lt]: new Date() },
-          statut: { [Op.ne]: 'Terminé' },
-          supprime: false,
-          archive: false
+          statut: { [Op.ne]: 'Terminé' }
         }
       }),
-      archivees: await TaskPro.count({ where: { archive: true, supprime: false } })
+      archivees: await TaskPro.count({
+        where: (() => {
+          const archivedWhere = { ...baseWhere, archive: true };
+          return archivedWhere;
+        })()
+      })
     };
 
     res.json({ stats });
@@ -416,6 +481,16 @@ router.get('/:id', async (req, res) => {
         error: 'Task not found',
         message: 'Tâche non trouvée'
       });
+    }
+
+    if (isResponsableZoneRole(req.user?.role)) {
+      const allowed = await assertResponsableZoneCanAccessTask(req, task.id);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        });
+      }
     }
 
     // Increment view count
@@ -626,6 +701,13 @@ router.put('/:id', [
       return res.status(404).json({ 
         error: 'Task not found',
         message: 'Tâche non trouvée'
+      });
+    }
+
+    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
       });
     }
 
@@ -844,6 +926,13 @@ router.patch('/:id/move', [
       });
     }
 
+    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+      });
+    }
+
     const oldColumn = task.colonne_kanban;
     const newPosition = position !== undefined ? parseInt(position) : task.position;
 
@@ -895,6 +984,13 @@ router.patch('/:id/assign', [
       return res.status(404).json({ 
         error: 'Task not found',
         message: 'Tâche non trouvée'
+      });
+    }
+
+    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
       });
     }
 
@@ -997,6 +1093,13 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
+    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+      });
+    }
+
     await task.update({
       supprime: true,
       date_suppression: new Date()
@@ -1029,6 +1132,13 @@ router.patch('/:id/archive', async (req, res) => {
       return res.status(404).json({ 
         error: 'Task not found',
         message: 'Tâche non trouvée'
+      });
+    }
+
+    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
       });
     }
 

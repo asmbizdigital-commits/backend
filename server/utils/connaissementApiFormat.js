@@ -49,6 +49,8 @@ function formatConnaissementForClient(row) {
     pays_origine: j.paysOrigine,
     numeroFeri: j.numeroFeri,
     numero_feri: j.numeroFeri,
+    modeTransport: j.modeTransport ?? j.mode_transport ?? null,
+    mode_transport: j.modeTransport ?? j.mode_transport ?? null,
     numeroFxi: j.numeroFxi,
     numero_fxi: j.numeroFxi,
     validationFxi: j.validationFxi,

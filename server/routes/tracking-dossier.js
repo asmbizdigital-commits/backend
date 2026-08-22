@@ -1,14 +1,62 @@
 const express = require('express');
 const { query, param, validationResult } = require('express-validator');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const {
+  authenticateTrackingAccess,
+  requireTrackingAdminJwt,
+  trackingApiKeyLimiter
+} = require('../middleware/trackingApiAuth');
 const {
   searchTrackingDossiers,
   loadTrackingDossierById
 } = require('../services/trackingDossierService');
+const { getTrackingIntegrationPublicConfig } = require('../utils/trackingApiKeys');
 
 const router = express.Router();
-router.use(authenticateToken);
-router.use(requireRole(['Administrateur']));
+
+router.use(authenticateTrackingAccess);
+router.use(trackingApiKeyLimiter);
+
+/** GET /api/tracking-dossier/integration — config & doc (admin JWT). */
+router.get('/integration', requireTrackingAdminJwt, (req, res) => {
+  const config = getTrackingIntegrationPublicConfig(req);
+  return res.json({
+    success: true,
+    integration: {
+      ...config,
+      endpoints: [
+        {
+          method: 'GET',
+          path: '/api/tracking-dossier/search',
+          description: 'Recherche par N° dossier, B/L ou N° déclaration.',
+          query: { q: 'string (requis)', limit: 'integer 1-50 (optionnel, défaut 25)' }
+        },
+        {
+          method: 'GET',
+          path: '/api/tracking-dossier/:id',
+          description: 'Dossier complet (circuit, assignations, documents, activité, fiche ASM).',
+          params: { id: 'integer connaissement_id' }
+        },
+        {
+          method: 'GET',
+          path: '/api/tracking-dossier/health',
+          description: 'Vérification de la clé API et disponibilité du service.'
+        }
+      ],
+      documentationPath: '/docs/TRACKING_DOSSIER_API.md'
+    }
+  });
+});
+
+/** GET /api/tracking-dossier/health — ping authentifié (JWT ou clé API). */
+router.get('/health', (req, res) => {
+  return res.json({
+    success: true,
+    service: 'tracking-dossier',
+    authMode: req.authMode || 'unknown',
+    client: req.trackingApiClient?.client || null,
+    at: new Date().toISOString()
+  });
+});
 
 /**
  * GET /api/tracking-dossier/search?q=...

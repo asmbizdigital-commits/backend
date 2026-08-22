@@ -33,6 +33,7 @@ const Connaissement = sequelize.define(
     nombreColis: { type: DataTypes.INTEGER, allowNull: true, field: 'nombre_colis' },
     totalWeightKg: { type: DataTypes.DECIMAL(12, 2), field: 'total_weight_kg' },
     eta: { type: DataTypes.DATE },
+    etd: { type: DataTypes.DATE },
     totalMeasurementCbm: { type: DataTypes.DECIMAL(10, 2), field: 'total_measurement_cbm' },
     hsCodeIndicated: { type: DataTypes.STRING(20), field: 'hs_code_indicated' },
     codeImo: { type: DataTypes.STRING(255), allowNull: true, field: 'code_imo' },

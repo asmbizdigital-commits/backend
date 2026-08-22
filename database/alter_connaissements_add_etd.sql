@@ -1,0 +1,5 @@
+-- ETD (Estimated Time of Departure) sur connaissements.
+-- Préférer : npm run migrate:connaissements-etd (idempotent, compatible MySQL Clever Cloud).
+--
+-- SQL manuel si besoin :
+-- ALTER TABLE `connaissements` ADD COLUMN `etd` datetime DEFAULT NULL AFTER `eta`;

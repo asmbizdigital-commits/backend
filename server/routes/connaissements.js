@@ -1169,6 +1169,7 @@ router.post('/', express.json({ limit: '2mb' }), async (req, res) => {
       dateValidationFxi: body.date_validation_fxi ?? null,
       numeroFeri: body.numero_feri ?? body.numeroFeri ?? null,
       eta: body.eta ?? null,
+      etd: body.etd ?? null,
       declarationNumber: body.declaration_number ?? null,
       isExported: Boolean(body.is_exported),
       isDeclared: Boolean(body.is_declared),
@@ -1543,6 +1544,7 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
           ? body.poids_brut
           : doc.totalWeightKg,
       eta: body.eta !== undefined ? body.eta ?? null : doc.eta,
+      etd: body.etd !== undefined ? body.etd ?? null : doc.etd,
       controleParId:
         body.controle_par_id !== undefined ? body.controle_par_id ?? null : doc.controleParId,
       controlePar: body.controle_par !== undefined ? body.controle_par ?? null : doc.controlePar,

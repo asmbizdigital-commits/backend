@@ -658,7 +658,8 @@ async function saveFicheAsmDetail(connaissementId, body) {
             leg.date_controle !== undefined
               ? sanitizeDateTime(leg.date_controle)
               : doc.dateControle,
-          eta: leg.eta !== undefined ? sanitizeDateTime(leg.eta) : doc.eta
+          eta: leg.eta !== undefined ? sanitizeDateTime(leg.eta) : doc.eta,
+          etd: leg.etd !== undefined ? sanitizeDateTime(leg.etd) : doc.etd
         },
         { transaction: t }
       );

@@ -35,7 +35,8 @@
     "migrate:optimize-api-indexes": "node scripts/run-migrate-optimize-api-indexes.js",
     "migrate:user-role-call-center": "node scripts/run-migrate-user-role-call-center.js",
     "migrate:role-verificateur-sygrem": "node scripts/run-migrate-role-verificateur-sygrem.js",
-    "migrate:user-role-responsable-zone-chef-executif": "node scripts/run-migrate-user-role-responsable-zone-chef-executif.js"
+    "migrate:user-role-responsable-zone-chef-executif": "node scripts/run-migrate-user-role-responsable-zone-chef-executif.js",
+    "migrate:connaissements-etd": "node scripts/run-migrate-connaissements-etd.js"
   },
   "keywords": [
     "hotel",

@@ -1,4 +1,4 @@
-const { Op } = require('sequelize');
+const { Op, col } = require('sequelize');
 const Connaissement = require('../models/Connaissement');
 const AssignationBL = require('../models/AssignationBL');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
@@ -142,10 +142,10 @@ async function searchTrackingDossiers(queryRaw, { limit = 25 } = {}) {
       'isDeclared',
       'isValidated',
       'isControlledByController',
-      'updatedAt',
-      'createdAt'
+      [col('updated_at'), 'updatedAt'],
+      [col('created_at'), 'createdAt']
     ],
-    order: [['updatedAt', 'DESC']],
+    order: [[col('updated_at'), 'DESC']],
     limit: Math.min(50, Math.max(1, limit))
   });
 
@@ -159,8 +159,8 @@ async function searchTrackingDossiers(queryRaw, { limit = 25 } = {}) {
       declarationNumber: plain.declarationNumber,
       vesselName: plain.vesselName,
       consigneeName: plain.consigneeName,
-      updatedAt: plain.updatedAt,
-      createdAt: plain.createdAt,
+      updatedAt: plain.updatedAt ?? plain.updated_at,
+      createdAt: plain.createdAt ?? plain.created_at,
       currentStepId: circuit.currentStepId
     };
   });

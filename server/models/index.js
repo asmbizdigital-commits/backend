@@ -94,6 +94,7 @@ const DocsControleBl = require('./DocsControleBl');
 const ConnexionResponsable = require('./ConnexionResponsable');
 const AssignationBL = require('./AssignationBL');
 const AssignationBLControleur = require('./AssignationBLControleur');
+const ContentieuxDossier = require('./ContentieuxDossier');
 // Alerte model removed
 
 // Associations pour les problématiques
@@ -922,6 +923,13 @@ AssignationBLControleur.belongsTo(User, { foreignKey: 'assigneParId', as: 'assig
 TaskPro.hasMany(AssignationBLControleur, { foreignKey: 'taskProId', as: 'assignationsBLControleur' });
 AssignationBLControleur.belongsTo(TaskPro, { foreignKey: 'taskProId', as: 'taskPro' });
 
+Connaissement.hasMany(ContentieuxDossier, { foreignKey: 'connaissementId', as: 'contentieuxDossiers' });
+ContentieuxDossier.belongsTo(Connaissement, { foreignKey: 'connaissementId', as: 'connaissement' });
+User.hasMany(ContentieuxDossier, { foreignKey: 'creeParId', as: 'contentieuxDossiersCrees' });
+ContentieuxDossier.belongsTo(User, { foreignKey: 'creeParId', as: 'creePar' });
+User.hasMany(ContentieuxDossier, { foreignKey: 'saisisseurId', as: 'contentieuxDossiersSaisisseur' });
+ContentieuxDossier.belongsTo(User, { foreignKey: 'saisisseurId', as: 'saisisseur' });
+
 Connaissement.hasOne(DocsFeri, { foreignKey: 'docConnaissementId', as: 'docFeri' });
 DocsFeri.belongsTo(Connaissement, { foreignKey: 'docConnaissementId', as: 'connaissement' });
 
@@ -1045,5 +1053,6 @@ module.exports = {
   ConnexionResponsable,
   AssignationBL,
   AssignationBLControleur,
+  ContentieuxDossier,
   // Alerte removed
 }; 

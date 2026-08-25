@@ -85,6 +85,7 @@ const connaissementsRoutes = require('./routes/connaissements');
 const assignationsBLRoutes = require('./routes/assignations-bl');
 const assignationsBLControleurRoutes = require('./routes/assignations-bl-controleur');
 const connexionsResponsablesRoutes = require('./routes/connexions-responsables');
+const contentieuxDossiersRoutes = require('./routes/contentieux-dossiers');
 
 const app = express();
 app.set('trust proxy', 1); // Render / reverse proxy — rate limit par IP client réelle
@@ -357,6 +358,7 @@ app.use('/api/bl-documents', connaissementsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
 app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 app.use('/api/connexions-responsables', connexionsResponsablesRoutes);
+app.use('/api/contentieux-dossiers', contentieuxDossiersRoutes);
 app.use('/api/monitoring-phase-test', require('./routes/monitoring-phase-test'));
 app.use('/api/tracking-dossier', require('./routes/tracking-dossier'));
 
@@ -736,6 +738,34 @@ async function startServer() {
       console.log('✅ tbl_sanctions_pro statut ENUM à jour.');
     } catch (err) {
       if (err.message && !err.message.includes('Duplicate')) console.warn('⚠️ tbl_sanctions_pro statut:', err.message);
+    }
+
+    // tbl_contentieux_dossiers (contentieux FERI)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_contentieux_dossiers (
+          id INT(11) NOT NULL AUTO_INCREMENT,
+          connaissement_id INT(11) NOT NULL,
+          numero_dossier VARCHAR(255) NOT NULL,
+          bl_number VARCHAR(50) DEFAULT NULL,
+          saisisseur_id INT(11) DEFAULT NULL,
+          saisisseur_nom VARCHAR(255) DEFAULT NULL,
+          cree_par_id INT(11) NOT NULL,
+          statut ENUM('Nouveau','En cours','Clôturé','Annulé') NOT NULL DEFAULT 'Nouveau',
+          commentaire TEXT DEFAULT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_contentieux_connaissement (connaissement_id),
+          KEY idx_contentieux_numero_dossier (numero_dossier),
+          KEY idx_contentieux_cree_par (cree_par_id),
+          KEY idx_contentieux_statut (statut),
+          KEY idx_contentieux_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `, { raw: true });
+      console.log('✅ Table tbl_contentieux_dossiers prête.');
+    } catch (err) {
+      console.warn('⚠️ tbl_contentieux_dossiers:', err.message);
     }
 
     // Démarrer le service de monitoring des stocks

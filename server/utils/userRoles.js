@@ -48,6 +48,11 @@ function isResponsableZoneRole(role) {
   return String(role || '').trim() === ROLE_RESPONSABLE_ZONE;
 }
 
+function isCallCenterRole(role) {
+  const n = normalizeRole(role);
+  return n === 'call_center' || n === 'call center';
+}
+
 function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   if (!assigneeRole || !roleCible) return false;
   if (roleCible === ROLE_VERIFICATEUR_SYGREM) {
@@ -73,5 +78,6 @@ module.exports = {
   isSaisisseurRole,
   isManagerBureauRole,
   isResponsableZoneRole,
+  isCallCenterRole,
   assigneeMatchesRoleCible
 };

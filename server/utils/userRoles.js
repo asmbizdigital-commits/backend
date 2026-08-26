@@ -30,7 +30,14 @@ function isRoleExploitationControleDossiers(role) {
 }
 
 function isRoleDirecteurOperations(role) {
-  return normalizeRole(role) === 'directeur operations';
+  const n = normalizeRole(role);
+  if (!n || n.includes('chef executif')) return false;
+  if (n === 'directeur operations' || n === 'direction des operations') return true;
+  if (n.includes('directeur') && n.includes('operation')) return true;
+  if (n.includes('direction') && n.includes('operation') && !n.includes('provinciale')) {
+    return true;
+  }
+  return false;
 }
 
 function isSaisisseurRole(role) {

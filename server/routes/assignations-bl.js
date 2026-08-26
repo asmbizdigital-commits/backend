@@ -57,6 +57,8 @@ const emitAssignationsChanged = (req) => {
   }
 };
 
+const ACTIVE_ASSIGN_STATUTS = ['Assignée', 'En cours', 'Terminée'];
+
 router.get(
   '/',
   [
@@ -64,6 +66,7 @@ router.get(
     query('limit').optional().isInt({ min: 1, max: 1000 }),
     query('assignee_id').optional().isInt({ min: 1 }),
     query('connaissement_id').optional().isInt({ min: 1 }),
+    query('connaissement_ids').optional().isString().trim(),
     query('bl_document_id').optional().isString().trim(),
     query('statut').optional().isIn(['Assignée', 'En cours', 'Terminée', 'Annulée'])
   ],
@@ -81,12 +84,20 @@ router.get(
       if (isSaisisseurRole(req.user?.role)) {
         // Un saisisseur ne voit que ses propres assignations.
         where.assigneeId = req.user.id;
-        where.statut = { [Op.in]: ['Assignée', 'En cours', 'Terminée'] };
+        where.statut = { [Op.in]: ACTIVE_ASSIGN_STATUTS };
       } else {
         if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
         if (req.query.statut) where.statut = req.query.statut;
       }
-      if (req.query.connaissement_id) {
+      const idsFromList = parsePositiveIntIds(
+        String(req.query.connaissement_ids || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      );
+      if (idsFromList.length) {
+        where.connaissementId = { [Op.in]: idsFromList };
+      } else if (req.query.connaissement_id) {
         where.connaissementId = parseInt(req.query.connaissement_id, 10);
       } else if (req.query.bl_document_id) {
         const cid = parseInt(String(req.query.bl_document_id).trim(), 10);
@@ -186,6 +197,24 @@ router.post(
           message: 'Certains connaissements sont introuvables',
           missing_connaissement_ids: missing,
           missing_bl_document_ids: missing
+        });
+      }
+
+      const existingActive = await AssignationBL.findAll({
+        where: {
+          connaissementId: { [Op.in]: ids },
+          statut: { [Op.in]: ACTIVE_ASSIGN_STATUTS }
+        },
+        attributes: ['id', 'connaissementId', 'assigneeId', 'statut']
+      });
+      if (existingActive.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            'Un ou plusieurs dossiers sont déjà assignés à un saisisseur. Réassignation refusée pour éviter une désassignation implicite.',
+          already_assigned_connaissement_ids: [
+            ...new Set(existingActive.map((a) => a.connaissementId).filter(Boolean))
+          ]
         });
       }
 
@@ -354,10 +383,23 @@ router.delete('/:id', requireCanAssignSaisisseur, [param('id').isInt({ min: 1 })
 
     const row = await AssignationBL.findByPk(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
-    await row.destroy();
+
+    // Soft-cancel : ne jamais détruire la ligne (évite une « désassignation » silencieuse / perte d’audit).
+    if (row.statut !== 'Annulée') {
+      row.statut = 'Annulée';
+      await row.save();
+      if (row.taskProId) {
+        const task = await TaskPro.findByPk(row.taskProId);
+        if (task && task.statut !== 'Annulé' && task.colonne_kanban !== 'Annulé') {
+          task.statut = 'Annulé';
+          task.colonne_kanban = 'Annulé';
+          await task.save();
+        }
+      }
+    }
 
     emitAssignationsChanged(req);
-    res.json({ success: true, message: 'Assignation supprimée' });
+    res.json({ success: true, message: 'Assignation annulée', assignation: row });
   } catch (error) {
     console.error('DELETE /api/assignations-bl/:id', error);
     res.status(500).json({ success: false, message: "Erreur lors de la suppression de l'assignation B/L" });

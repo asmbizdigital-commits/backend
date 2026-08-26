@@ -60,6 +60,8 @@ function requireCreateurAssignControleur(req, res, next) {
   });
 }
 
+const ACTIVE_ASSIGN_STATUTS = ['Assignée', 'En cours', 'Terminée'];
+
 router.get(
   '/',
   [
@@ -67,6 +69,7 @@ router.get(
     query('limit').optional().isInt({ min: 1, max: 1000 }),
     query('assignee_id').optional().isInt({ min: 1 }),
     query('connaissement_id').optional().isInt({ min: 1 }),
+    query('connaissement_ids').optional().isString().trim(),
     query('bl_document_id').optional().isString().trim(),
     query('statut').optional().isIn(['Assignée', 'En cours', 'Terminée', 'Annulée'])
   ],
@@ -84,12 +87,20 @@ router.get(
       if (isRoleExploitationControleDossiers(req.user?.role)) {
         // Un vérificateur / contrôleur ne voit que ses propres assignations.
         where.assigneeId = req.user.id;
-        where.statut = { [Op.in]: ['Assignée', 'En cours', 'Terminée'] };
+        where.statut = { [Op.in]: ACTIVE_ASSIGN_STATUTS };
       } else {
         if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
         if (req.query.statut) where.statut = req.query.statut;
       }
-      if (req.query.connaissement_id) {
+      const idsFromList = parsePositiveIntIds(
+        String(req.query.connaissement_ids || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      );
+      if (idsFromList.length) {
+        where.connaissementId = { [Op.in]: idsFromList };
+      } else if (req.query.connaissement_id) {
         where.connaissementId = parseInt(req.query.connaissement_id, 10);
       } else if (req.query.bl_document_id) {
         const cid = parseInt(String(req.query.bl_document_id).trim(), 10);
@@ -226,6 +237,24 @@ router.post(
             'Seuls les dossiers déclarés (avec numéro de dossier) peuvent être assignés au contrôle Sygrem.',
           invalid_connaissement_ids: invalid.map((c) => c.id),
           invalid_bl_document_ids: invalid.map((c) => c.id)
+        });
+      }
+
+      const existingActive = await AssignationBLControleur.findAll({
+        where: {
+          connaissementId: { [Op.in]: ids },
+          statut: { [Op.in]: ACTIVE_ASSIGN_STATUTS }
+        },
+        attributes: ['id', 'connaissementId', 'assigneeId', 'statut']
+      });
+      if (existingActive.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message:
+            'Un ou plusieurs dossiers sont déjà assignés à un vérificateur Sygrem. Réassignation refusée pour éviter une désassignation implicite.',
+          already_assigned_connaissement_ids: [
+            ...new Set(existingActive.map((a) => a.connaissementId).filter(Boolean))
+          ]
         });
       }
 
@@ -396,10 +425,22 @@ router.delete('/:id', requireCreateurAssignControleur, [param('id').isInt({ min:
       }
     }
 
-    await row.destroy();
+    // Soft-cancel : conserver l’historique, éviter une désassignation destructrice.
+    if (row.statut !== 'Annulée') {
+      row.statut = 'Annulée';
+      await row.save();
+      if (row.taskProId) {
+        const task = await TaskPro.findByPk(row.taskProId);
+        if (task && task.statut !== 'Annulé' && task.colonne_kanban !== 'Annulé') {
+          task.statut = 'Annulé';
+          task.colonne_kanban = 'Annulé';
+          await task.save();
+        }
+      }
+    }
 
     emitChanged(req);
-    res.json({ success: true, message: 'Assignation supprimée' });
+    res.json({ success: true, message: 'Assignation annulée', assignation: row });
   } catch (error) {
     console.error('DELETE /api/assignations-bl-controleur/:id', error);
     res.status(500).json({

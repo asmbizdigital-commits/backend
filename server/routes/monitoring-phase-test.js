@@ -18,6 +18,15 @@ const router = express.Router();
 router.use(authenticateToken);
 router.use(requireMonitoringPhaseTestAccess);
 
+/** Taille des lots SQL pour charger toute la journée sans plafond artificiel. */
+const FETCH_CHUNK = 3000;
+/** Sécurité anti-boucle (événements / jour). */
+const MAX_DAY_EVENTS = 200000;
+/** Flux live UI uniquement — les KPI / acteurs / dossiers utilisent TOUTE la journée. */
+const FEED_LIMIT = 500;
+/** Timeline détaillée par dossier dans la réponse (évite un JSON énorme). */
+const DOSSIER_EVENTS_LIMIT = 40;
+
 function formatDuration(ms) {
   if (ms == null || Number.isNaN(ms)) return null;
   const totalSec = Math.floor(ms / 1000);
@@ -55,40 +64,72 @@ function serializeEvent(row) {
   };
 }
 
+/**
+ * Charge tous les logs du jour (par lots) — plus de plafond 2000 qui
+ * biaisait les compteurs acteurs (les actions du matin sortaient du top DESC).
+ */
+async function fetchAllDayActivityRows(from, to) {
+  const all = [];
+  let offset = 0;
+  while (offset < MAX_DAY_EVENTS) {
+    const batch = await DossierActivityLog.findAll({
+      where: {
+        createdAt: { [Op.between]: [from, to] }
+      },
+      order: [
+        ['createdAt', 'ASC'],
+        ['id', 'ASC']
+      ],
+      limit: FETCH_CHUNK,
+      offset
+    });
+    if (!batch.length) break;
+    all.push(...batch);
+    if (batch.length < FETCH_CHUNK) break;
+    offset += FETCH_CHUNK;
+  }
+  return all;
+}
+
 async function loadGeoByConnaissementIds(ids) {
   const geoMap = new Map();
   if (!ids.length) return geoMap;
 
-  const rows = await Connaissement.findAll({
-    where: { id: { [Op.in]: ids } },
-    attributes: ['id', 'zoneConnaissement', 'bureauConnaissement'],
-    include: [
-      {
-        model: Zone,
-        as: 'Zone',
-        attributes: ['id', 'code', 'nom'],
-        required: false
-      },
-      {
-        model: BureauInternational,
-        as: 'BureauInternational',
-        attributes: ['id', 'nom', 'code', 'ville', 'pays'],
-        required: false
-      }
-    ]
-  });
-
-  for (const row of rows) {
-    const plain = row.toJSON ? row.toJSON() : row;
-    geoMap.set(String(plain.id), {
-      zoneId: plain.zoneConnaissement ?? plain.Zone?.id ?? null,
-      zoneLabel: plain.Zone?.nom || plain.Zone?.code || null,
-      bureauId: plain.bureauConnaissement ?? plain.BureauInternational?.id ?? null,
-      bureauLabel:
-        plain.BureauInternational?.nom ||
-        plain.BureauInternational?.code ||
-        null
+  // Charger la géo par lots pour éviter des IN() énormes.
+  const chunkSize = 1000;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const slice = ids.slice(i, i + chunkSize);
+    const rows = await Connaissement.findAll({
+      where: { id: { [Op.in]: slice } },
+      attributes: ['id', 'zoneConnaissement', 'bureauConnaissement'],
+      include: [
+        {
+          model: Zone,
+          as: 'Zone',
+          attributes: ['id', 'code', 'nom'],
+          required: false
+        },
+        {
+          model: BureauInternational,
+          as: 'BureauInternational',
+          attributes: ['id', 'nom', 'code', 'ville', 'pays'],
+          required: false
+        }
+      ]
     });
+
+    for (const row of rows) {
+      const plain = row.toJSON ? row.toJSON() : row;
+      geoMap.set(String(plain.id), {
+        zoneId: plain.zoneConnaissement ?? plain.Zone?.id ?? null,
+        zoneLabel: plain.Zone?.nom || plain.Zone?.code || null,
+        bureauId: plain.bureauConnaissement ?? plain.BureauInternational?.id ?? null,
+        bureauLabel:
+          plain.BureauInternational?.nom ||
+          plain.BureauInternational?.code ||
+          null
+      });
+    }
   }
   return geoMap;
 }
@@ -96,6 +137,7 @@ async function loadGeoByConnaissementIds(ids) {
 /**
  * GET /api/monitoring-phase-test/today
  * Feed du jour + dossiers touchés + évaluation.
+ * Agrégats = journée complète ; `events` = flux live tronqué (FEED_LIMIT).
  */
 router.get('/today', async (req, res) => {
   try {
@@ -106,24 +148,14 @@ router.get('/today', async (req, res) => {
     const from = startOfDay(dayParam);
     const to = endOfDay(dayParam);
 
-    const rows = await DossierActivityLog.findAll({
-      where: {
-        createdAt: { [Op.between]: [from, to] }
-      },
-      order: [
-        ['createdAt', 'DESC'],
-        ['id', 'DESC']
-      ],
-      limit: 2000
-    });
-
-    const events = rows.map(serializeEvent);
+    const rows = await fetchAllDayActivityRows(from, to);
+    const eventsAll = rows.map(serializeEvent);
 
     const dossiersMap = new Map();
     const actorsMap = new Map();
     const byAction = {};
 
-    for (const ev of events) {
+    for (const ev of eventsAll) {
       byAction[ev.actionType] = (byAction[ev.actionType] || 0) + 1;
 
       const dKey = String(ev.connaissementId);
@@ -190,6 +222,9 @@ router.get('/today', async (req, res) => {
         if (d.scores.critical > 0) evalScore = 'critical';
         else if (d.scores.warn > 0) evalScore = 'warn';
         const geo = geoMap.get(String(d.connaissementId)) || {};
+        const timeline = d.events.sort(
+          (x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime()
+        );
         return {
           ...d,
           actors: Array.from(d.actors),
@@ -202,9 +237,9 @@ router.get('/today', async (req, res) => {
           zoneLabel: geo.zoneLabel ?? null,
           bureauId: geo.bureauId ?? null,
           bureauLabel: geo.bureauLabel ?? null,
-          events: d.events.sort(
-            (x, y) => new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime()
-          )
+          // Compteur réel ; timeline tronquée pour la taille de réponse.
+          events: timeline.slice(-DOSSIER_EVENTS_LIMIT),
+          eventsTruncated: timeline.length > DOSSIER_EVENTS_LIMIT
         };
       })
       .sort((a, b) => new Date(b.lastActionAt) - new Date(a.lastActionAt));
@@ -228,13 +263,12 @@ router.get('/today', async (req, res) => {
           avgDurationLabel: formatDuration(avg),
           totalDurationLabel: formatDuration(a.totalDurationMs),
           evalScore,
-          efficiencyPct:
-            rated > 0 ? Math.round((a.scores.good / rated) * 100) : null
+          efficiencyPct: rated > 0 ? Math.round((a.scores.good / rated) * 100) : null
         };
       })
       .sort((a, b) => b.actionsCount - a.actionsCount);
 
-    const scoredEvents = events.filter((e) => e.score !== 'unknown');
+    const scoredEvents = eventsAll.filter((e) => e.score !== 'unknown');
     const dayGood = scoredEvents.filter((e) => e.score === 'good').length;
     const dayWarn = scoredEvents.filter((e) => e.score === 'warn').length;
     const dayCritical = scoredEvents.filter((e) => e.score === 'critical').length;
@@ -245,9 +279,16 @@ router.get('/today', async (req, res) => {
       else if ((dayWarn + dayCritical) / rated >= 0.35) dayEval = 'warn';
     }
 
-    const completedPipeline = dossiers.filter((d) =>
-      d.actionTypes.includes('add_feri')
-    ).length;
+    const completedPipeline = dossiers.filter((d) => d.actionTypes.includes('add_feri')).length;
+
+    // Flux live : les plus récents seulement (KPI restent sur eventsAll).
+    const eventsFeed = [...eventsAll]
+      .sort((a, b) => {
+        const tb = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        if (tb !== 0) return tb;
+        return (b.id || 0) - (a.id || 0);
+      })
+      .slice(0, FEED_LIMIT);
 
     res.json({
       success: true,
@@ -255,16 +296,23 @@ router.get('/today', async (req, res) => {
       from: from.toISOString(),
       to: to.toISOString(),
       summary: {
-        eventsCount: events.length,
+        eventsCount: eventsAll.length,
         dossiersCount: dossiers.length,
         actorsCount: actors.length,
         completedPipeline,
-        scores: { good: dayGood, warn: dayWarn, critical: dayCritical, unknown: events.length - rated },
+        scores: {
+          good: dayGood,
+          warn: dayWarn,
+          critical: dayCritical,
+          unknown: eventsAll.length - rated
+        },
         efficiencyPct: rated > 0 ? Math.round((dayGood / rated) * 100) : null,
         dayEval,
-        byAction
+        byAction,
+        feedLimit: FEED_LIMIT,
+        feedTruncated: eventsAll.length > FEED_LIMIT
       },
-      events,
+      events: eventsFeed,
       dossiers,
       actors,
       actionLabels: ACTION_LABELS_FR,

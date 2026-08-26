@@ -1074,9 +1074,15 @@ router.get(
           Connaissement.findAll({
             ...queryOptions,
             limit: limitNum,
-            offset: (pageNum - 1) * limitNum
+            offset: (pageNum - 1) * limitNum,
+            // Évite un LIMIT sur jointures qui peut tronquer des parents.
+            subQuery: true
           }),
-          Connaissement.count({ where })
+          Connaissement.count({
+            where,
+            distinct: true,
+            col: 'id'
+          })
         ]);
         rows = foundRows;
         total = counted;

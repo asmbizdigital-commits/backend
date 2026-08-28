@@ -635,7 +635,7 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
       return {
         allowed: false,
         status: 403,
-        message: 'Accès non autorisé à ce connaissement (hors de votre zone / direction / bureau).'
+        message: 'Accès non autorisé à ce connaissement (hors de votre bureau international).'
       };
     }
   }
@@ -692,9 +692,9 @@ async function enrichConnaissementRows(rows) {
         AssignationBL.findAll({
           where: {
             connaissementId: { [Op.in]: blIds },
-            statut: { [Op.ne]: 'Annulée' }
+            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite'],
+          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite', 'statut'],
           order: [['createdAt', 'DESC']]
         })
       ]);
@@ -775,6 +775,8 @@ async function enrichConnaissementRows(rows) {
     const saisiAss = k ? saisiAssignByNormId.get(k) : null;
     json.controleAssignee = toAssigneePayload(controleAss);
     json.saisiAssignee = toAssigneePayload(saisiAss);
+    json.saisiAssignmentStatut = saisiAss?.statut || null;
+    json.saisi_assignment_statut = json.saisiAssignmentStatut;
     json.controlePriorite = controleAss?.priorite || null;
     json.controle_priorite = json.controlePriorite;
     json.saisiPriorite = saisiAss?.priorite || null;

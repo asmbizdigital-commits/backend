@@ -9,24 +9,22 @@ const { authenticateToken } = require('../middleware/auth');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const { sendAssignationBlNotificationEmail } = require('../services/emailService');
 const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
-const { isSaisisseurRole, isCallCenterRole } = require('../utils/userRoles');
+const { isSaisisseurRole, isCallCenterRole, canAssignSaisisseurDossier, isManagerBureauRole } = require('../utils/userRoles');
+const {
+  loadUserGeo,
+  managerBureauCanAccessConnaissement
+} = require('../utils/managerBureauConnaissementAccess');
 
 const router = express.Router();
 router.use(authenticateToken);
 
 function requireCanAssignSaisisseur(req, res, next) {
   if (req.user?.nom === 'Jimmy') return next();
-  if (isCallCenterRole(req.user?.role)) {
+  if (!canAssignSaisisseurDossier(req.user?.role)) {
     return res.status(403).json({
       success: false,
       message:
-        'Le rôle Call Center ne peut pas assigner de dossiers à un saisisseur. Accès réservé au support client.'
-    });
-  }
-  if (isSaisisseurRole(req.user?.role)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Un saisisseur ne peut pas créer d’assignation B/L.'
+        'Vous n’êtes pas autorisé à assigner des dossiers à un saisisseur (Manager Bureau, Directeur Opérations, Responsable Zone, etc.).'
     });
   }
   return next();
@@ -58,6 +56,8 @@ const emitAssignationsChanged = (req) => {
 };
 
 const ACTIVE_ASSIGN_STATUTS = ['Assignée', 'En cours', 'Terminée'];
+/** Bloque une nouvelle assignation (dossier déjà en cours de traitement). */
+const BLOCKING_ASSIGN_STATUTS = ['Assignée', 'En cours'];
 
 router.get(
   '/',
@@ -200,23 +200,47 @@ router.post(
         });
       }
 
-      const existingActive = await AssignationBL.findAll({
+      const userGeo = await loadUserGeo(req.user.id);
+      if (isManagerBureauRole(userGeo?.role)) {
+        for (const c of rows) {
+          const allowed = await managerBureauCanAccessConnaissement(userGeo, c);
+          if (!allowed) {
+            return res.status(403).json({
+              success: false,
+              message: 'Un ou plusieurs dossiers sont hors de votre bureau international.'
+            });
+          }
+        }
+      }
+
+      const existingBlocking = await AssignationBL.findAll({
         where: {
           connaissementId: { [Op.in]: ids },
-          statut: { [Op.in]: ACTIVE_ASSIGN_STATUTS }
+          statut: { [Op.in]: BLOCKING_ASSIGN_STATUTS }
         },
         attributes: ['id', 'connaissementId', 'assigneeId', 'statut']
       });
-      if (existingActive.length > 0) {
+      if (existingBlocking.length > 0) {
         return res.status(409).json({
           success: false,
           message:
-            'Un ou plusieurs dossiers sont déjà assignés à un saisisseur. Réassignation refusée pour éviter une désassignation implicite.',
+            'Un ou plusieurs dossiers sont déjà assignés à un saisisseur (assignation active). Réassignation refusée.',
           already_assigned_connaissement_ids: [
-            ...new Set(existingActive.map((a) => a.connaissementId).filter(Boolean))
+            ...new Set(existingBlocking.map((a) => a.connaissementId).filter(Boolean))
           ]
         });
       }
+
+      // Ancienne assignation terminée : annuler avant d'en créer une nouvelle.
+      await AssignationBL.update(
+        { statut: 'Annulée', updatedAt: new Date() },
+        {
+          where: {
+            connaissementId: { [Op.in]: ids },
+            statut: 'Terminée'
+          }
+        }
+      );
 
       const created = [];
       for (const c of rows) {

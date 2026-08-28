@@ -60,6 +60,31 @@ function isCallCenterRole(role) {
   return n === 'call_center' || n === 'call center';
 }
 
+function isChefExecutifOperationsRole(role) {
+  const n = normalizeRole(role);
+  return n === 'chef executif des operations' || n.includes('chef executif');
+}
+
+function isRoleAdministrateur(role) {
+  return normalizeRole(role) === 'administrateur';
+}
+
+/** Peut assigner un dossier à un saisisseur (traitement B/L). */
+function canAssignSaisisseurDossier(role) {
+  if (!role) return false;
+  if (isCallCenterRole(role)) return false;
+  if (isSaisisseurRole(role)) return false;
+  const n = normalizeRole(role);
+  return (
+    isRoleAdministrateur(role) ||
+    n === 'patron' ||
+    isManagerBureauRole(role) ||
+    isResponsableZoneRole(role) ||
+    isRoleDirecteurOperations(role) ||
+    isChefExecutifOperationsRole(role)
+  );
+}
+
 function assigneeMatchesRoleCible(assigneeRole, roleCible) {
   if (!assigneeRole || !roleCible) return false;
   if (roleCible === ROLE_VERIFICATEUR_SYGREM) {
@@ -86,5 +111,8 @@ module.exports = {
   isManagerBureauRole,
   isResponsableZoneRole,
   isCallCenterRole,
+  isChefExecutifOperationsRole,
+  isRoleAdministrateur,
+  canAssignSaisisseurDossier,
   assigneeMatchesRoleCible
 };

@@ -15,6 +15,7 @@ const {
 const { responsableZoneCanAccessConnaissement } = require('../utils/responsableZoneConnaissementAccess');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
+const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -24,18 +25,6 @@ const CHECKLIST_CONTROLE = [
   { id: 1, text: 'Validation FERI et clôture', completed: false },
   { id: 2, text: 'Contrôle conformité Sygrem', completed: false }
 ];
-
-const generateNumeroTache = async () => {
-  const year = new Date().getFullYear();
-  const count = await TaskPro.count({
-    where: {
-      date_creation: {
-        [Op.gte]: new Date(`${year}-01-01`)
-      }
-    }
-  });
-  return `TASK-${year}-${String(count + 1).padStart(4, '0')}`;
-};
 
 const emitChanged = (req) => {
   const io = req.app.get('io');
@@ -260,9 +249,7 @@ router.post(
 
       const created = [];
       for (const bl of connRows) {
-        const numero = await generateNumeroTache();
-        const task = await TaskPro.create({
-          numero_tache: numero,
+        const task = await createTaskProWithUniqueNumero({
           titre: `Contrôle B/L ${bl.blNumber || bl.id}`,
           description: `Tâche créée automatiquement depuis l'assignation contrôle B/L ${bl.blNumber || bl.id}.`,
           type_tache: 'Tâche',

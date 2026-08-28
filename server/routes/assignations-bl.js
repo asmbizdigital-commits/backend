@@ -14,6 +14,7 @@ const {
   loadUserGeo,
   managerBureauCanAccessConnaissement
 } = require('../utils/managerBureauConnaissementAccess');
+const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -35,18 +36,6 @@ const CHECKLIST_TEMPLATE = [
   { id: 2, text: 'Controle des informations', completed: false },
   { id: 3, text: 'Remplissage fiche de renseignement', completed: false }
 ];
-
-const generateNumeroTache = async () => {
-  const year = new Date().getFullYear();
-  const count = await TaskPro.count({
-    where: {
-      date_creation: {
-        [Op.gte]: new Date(`${year}-01-01`)
-      }
-    }
-  });
-  return `TASK-${year}-${String(count + 1).padStart(4, '0')}`;
-};
 
 const emitAssignationsChanged = (req) => {
   const io = req.app.get('io');
@@ -244,9 +233,7 @@ router.post(
 
       const created = [];
       for (const c of rows) {
-        const numero = await generateNumeroTache();
-        const task = await TaskPro.create({
-          numero_tache: numero,
+        const task = await createTaskProWithUniqueNumero({
           titre: `Traitement B/L ${c.blNumber || c.id}`,
           description: `Tâche créée automatiquement depuis l'assignation B/L ${c.blNumber || c.id}.`,
           type_tache: 'Tâche',

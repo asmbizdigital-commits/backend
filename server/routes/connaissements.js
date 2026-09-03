@@ -144,7 +144,7 @@ async function assertCanManageControleDocs(req, connaissementId) {
       where: {
         connaissementId,
         assigneeId: req.user.id,
-        statut: { [Op.ne]: 'Annulée' }
+        statut: { [Op.in]: ['Assignée', 'En cours'] }
       }
     });
     if (!assignation) {
@@ -684,9 +684,9 @@ async function enrichConnaissementRows(rows) {
         AssignationBLControleur.findAll({
           where: {
             connaissementId: { [Op.in]: blIds },
-            statut: { [Op.ne]: 'Annulée' }
+            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite'],
+          attributes: ['id', 'connaissementId', 'assigneeId', 'createdAt', 'priorite', 'statut'],
           order: [['createdAt', 'DESC']]
         }),
         AssignationBL.findAll({
@@ -700,7 +700,15 @@ async function enrichConnaissementRows(rows) {
       ]);
       for (const a of controleAssignations) {
         const k = normConnId(a.connaissementId);
-        if (k && !controleAssignByNormId.has(k)) controleAssignByNormId.set(k, a);
+        if (!k) continue;
+        const existing = controleAssignByNormId.get(k);
+        if (!existing) {
+          controleAssignByNormId.set(k, a);
+          continue;
+        }
+        const blocking = new Set(['Assignée', 'En cours']);
+        if (blocking.has(existing.statut)) continue;
+        if (blocking.has(a.statut)) controleAssignByNormId.set(k, a);
       }
       for (const a of saisiAssignations) {
         const k = normConnId(a.connaissementId);
@@ -777,6 +785,10 @@ async function enrichConnaissementRows(rows) {
     json.saisiAssignee = toAssigneePayload(saisiAss);
     json.saisiAssignmentStatut = saisiAss?.statut || null;
     json.saisi_assignment_statut = json.saisiAssignmentStatut;
+    json.controleAssignmentStatut = controleAss?.statut || null;
+    json.controle_assignment_statut = json.controleAssignmentStatut;
+    json.controleAssignationId = controleAss?.id ?? null;
+    json.controle_assignation_id = json.controleAssignationId;
     json.controlePriorite = controleAss?.priorite || null;
     json.controle_priorite = json.controlePriorite;
     json.saisiPriorite = saisiAss?.priorite || null;
@@ -931,10 +943,11 @@ router.get(
 
       if (isControleurViewer) {
         const userId = parseInt(String(req.user.id), 10);
+        // Liste « à contrôler » : uniquement assignations actives (pas Terminée / Annulée).
         const assignRows = await AssignationBLControleur.findAll({
           where: {
             assigneeId: Number.isFinite(userId) ? userId : req.user.id,
-            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
+            statut: { [Op.in]: ['Assignée', 'En cours'] }
           },
           attributes: ['connaissementId']
         });
@@ -1406,7 +1419,7 @@ router.patch('/:id', express.json({ limit: '2mb' }), async (req, res) => {
       where: {
         connaissementId: doc.id,
         assigneeId: req.user.id,
-        statut: { [Op.ne]: 'Annulée' }
+        statut: { [Op.in]: ['Assignée', 'En cours'] }
       }
     });
 

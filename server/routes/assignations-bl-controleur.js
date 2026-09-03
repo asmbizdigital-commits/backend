@@ -49,7 +49,9 @@ function requireCreateurAssignControleur(req, res, next) {
   });
 }
 
-const ACTIVE_ASSIGN_STATUTS = ['Assignée', 'En cours', 'Terminée'];
+/** Seuls ces statuts empêchent une nouvelle assignation (aligné saisisseur). */
+const BLOCKING_ASSIGN_STATUTS = ['Assignée', 'En cours'];
+const VIEWER_ASSIGN_STATUTS = [...BLOCKING_ASSIGN_STATUTS, 'Terminée'];
 
 router.get(
   '/',
@@ -74,9 +76,9 @@ router.get(
       const offset = (page - 1) * limit;
       const where = {};
       if (isRoleExploitationControleDossiers(req.user?.role)) {
-        // Un vérificateur / contrôleur ne voit que ses propres assignations.
+        // Un vérificateur / contrôleur ne voit que ses propres assignations actives.
         where.assigneeId = req.user.id;
-        where.statut = { [Op.in]: ACTIVE_ASSIGN_STATUTS };
+        where.statut = { [Op.in]: VIEWER_ASSIGN_STATUTS };
       } else {
         if (req.query.assignee_id) where.assigneeId = parseInt(req.query.assignee_id, 10);
         if (req.query.statut) where.statut = req.query.statut;
@@ -229,23 +231,34 @@ router.post(
         });
       }
 
-      const existingActive = await AssignationBLControleur.findAll({
+      const existingBlocking = await AssignationBLControleur.findAll({
         where: {
           connaissementId: { [Op.in]: ids },
-          statut: { [Op.in]: ACTIVE_ASSIGN_STATUTS }
+          statut: { [Op.in]: BLOCKING_ASSIGN_STATUTS }
         },
         attributes: ['id', 'connaissementId', 'assigneeId', 'statut']
       });
-      if (existingActive.length > 0) {
+      if (existingBlocking.length > 0) {
         return res.status(409).json({
           success: false,
           message:
-            'Un ou plusieurs dossiers sont déjà assignés à un vérificateur Sygrem. Réassignation refusée pour éviter une désassignation implicite.',
+            'Un ou plusieurs dossiers sont déjà assignés à un vérificateur Sygrem (assignation active). Réassignation refusée.',
           already_assigned_connaissement_ids: [
-            ...new Set(existingActive.map((a) => a.connaissementId).filter(Boolean))
+            ...new Set(existingBlocking.map((a) => a.connaissementId).filter(Boolean))
           ]
         });
       }
+
+      // Ancienne assignation terminée : annuler avant d'en créer une nouvelle.
+      await AssignationBLControleur.update(
+        { statut: 'Annulée', updatedAt: new Date() },
+        {
+          where: {
+            connaissementId: { [Op.in]: ids },
+            statut: 'Terminée'
+          }
+        }
+      );
 
       const created = [];
       for (const bl of connRows) {
@@ -306,6 +319,118 @@ router.post(
       res.status(500).json({
         success: false,
         message: "Erreur lors de la création de l'assignation contrôle B/L"
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/assignations-bl-controleur/terminer
+ * Le vérificateur / contrôleur clôture son assignation active (retire le dossier de sa file).
+ */
+router.post(
+  '/terminer',
+  [
+    body('connaissement_id').isInt({ min: 1 }),
+    body('bl_document_id').optional().isInt({ min: 1 })
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const connaissementId = parseInt(
+        String(req.body.connaissement_id || req.body.bl_document_id || ''),
+        10
+      );
+      if (!Number.isFinite(connaissementId) || connaissementId < 1) {
+        return res.status(400).json({
+          success: false,
+          message: 'connaissement_id requis.'
+        });
+      }
+
+      const isAssigneeRole = isRoleExploitationControleDossiers(req.user.role);
+      const isCreateur =
+        req.user.nom === 'Jimmy' ||
+        req.user.role === 'Administrateur' ||
+        isRoleDirecteurOperations(req.user.role) ||
+        isResponsableZoneRole(req.user.role);
+
+      if (!isAssigneeRole && !isCreateur) {
+        return res.status(403).json({
+          success: false,
+          message: 'Seul le vérificateur assigné (ou un administrateur) peut terminer ce contrôle.'
+        });
+      }
+
+      const where = {
+        connaissementId,
+        statut: { [Op.in]: ['Assignée', 'En cours'] }
+      };
+      if (isAssigneeRole && !isCreateur) {
+        where.assigneeId = req.user.id;
+      }
+
+      const row = await AssignationBLControleur.findOne({
+        where,
+        order: [['createdAt', 'DESC']]
+      });
+      if (!row) {
+        return res.status(404).json({
+          success: false,
+          message: 'Aucune assignation de contrôle active trouvée pour ce dossier.'
+        });
+      }
+
+      if (isResponsableZoneRole(req.user.role) && !isAssigneeRole) {
+        const doc = await Connaissement.findByPk(row.connaissementId);
+        const ok = await responsableZoneCanAccessConnaissement(req.user, doc);
+        if (!ok) {
+          return res.status(403).json({
+            success: false,
+            message: 'Vous ne pouvez terminer que des dossiers de vos directions / bureaux connectés.'
+          });
+        }
+      }
+
+      row.statut = 'Terminée';
+      await row.save();
+
+      if (row.taskProId) {
+        const task = await TaskPro.findByPk(row.taskProId);
+        if (task) {
+          task.statut = 'Terminé';
+          task.colonne_kanban = 'Terminé';
+          await task.save();
+        }
+      }
+
+      const conn = await Connaissement.findByPk(row.connaissementId);
+      await logDossierActivity(req, {
+        connaissementId: row.connaissementId,
+        actionType: ACTION_TYPES.CHECKLIST_CONTROLEUR,
+        assigneeId: row.assigneeId,
+        taskProId: row.taskProId,
+        assignationId: row.id,
+        dossierRef: conn?.numeroDossier || null,
+        blNumber: conn?.blNumber || null,
+        metadata: { statut: 'Terminée', source: 'terminer_controle' }
+      });
+
+      emitChanged(req);
+      res.json({
+        success: true,
+        message: 'Contrôle terminé.',
+        assignation: row
+      });
+    } catch (error) {
+      console.error('POST /api/assignations-bl-controleur/terminer', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erreur lors de la clôture du contrôle B/L'
       });
     }
   }

@@ -15,8 +15,8 @@ async function loadUserGeo(userId) {
 async function buildManagerBureauConnaissementWhere(user) {
   if (!user || !isManagerBureauRole(user.role)) return null;
 
-  const bureauId = user.bureau_international_id;
-  if (!bureauId) {
+  const bureauId = Number(user.bureau_international_id);
+  if (!Number.isFinite(bureauId) || bureauId < 1) {
     return { id: { [Op.eq]: -1 } };
   }
   return { bureauConnaissement: bureauId };
@@ -30,15 +30,17 @@ async function managerBureauCanAccessConnaissement(user, doc) {
   if (!user || !isManagerBureauRole(user.role)) return true;
   if (!doc) return false;
 
-  const bureauId = user.bureau_international_id;
-  if (!bureauId) return false;
+  const bureauId = Number(user.bureau_international_id);
+  if (!Number.isFinite(bureauId) || bureauId < 1) return false;
 
-  const docBureau =
+  const docBureau = Number(
     doc.bureauConnaissement ??
     doc.bureau_connaissement ??
-    null;
+    null
+  );
+  if (!Number.isFinite(docBureau) || docBureau < 1) return false;
 
-  return Number(docBureau) === Number(bureauId);
+  return docBureau === bureauId;
 }
 
 module.exports = {

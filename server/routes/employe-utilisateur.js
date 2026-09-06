@@ -7,6 +7,7 @@ const RH_USER_ADMIN_ROLES = ['Administrateur', 'Patron', 'Superviseur RH'];
 const EmployeUser = require('../models/EmployeUser');
 const Employee = require('../models/Employee');
 const { User, Employe } = require('../models');
+const { validatePasswordStrength } = require('../utils/passwordPolicy');
 
 const USER_ROLES = [
   'Agent Chambre', 'Superviseur Resto', 'Superviseur Buanderie',
@@ -44,8 +45,8 @@ function mapPosteToRole(poste) {
   return 'Agent';
 }
 
-// GET /api/employe-utilisateur/list — liste de toutes les liaisons (pour afficher les utilisateurs déjà liés)
-router.get('/list', authenticateToken, async (req, res) => {
+// GET /api/employe-utilisateur/list — liste de toutes les liaisons (RH / Admin uniquement)
+router.get('/list', authenticateToken, requireRole(RH_USER_ADMIN_ROLES), async (req, res) => {
   try {
     const liaisons = await EmployeUser.findAll({
       include: [
@@ -79,6 +80,32 @@ router.get('/', authenticateToken, [
       return res.status(400).json({ success: false, message: 'employe_id ou user_id requis' });
     }
 
+    const isRhAdmin = RH_USER_ADMIN_ROLES.includes(req.user.role);
+    if (!isRhAdmin) {
+      // Anti-IDOR : un non-RH ne peut interroger que sa propre liaison user_id
+      if (user_id && parseInt(user_id, 10) !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Accès refusé à la liaison d’un autre utilisateur'
+        });
+      }
+      if (employe_id) {
+        const own = await EmployeUser.findOne({
+          where: {
+            user_id: req.user.id,
+            employe_id: parseInt(employe_id, 10)
+          },
+          attributes: ['id']
+        });
+        if (!own) {
+          return res.status(403).json({
+            success: false,
+            message: 'Accès refusé à cet employé'
+          });
+        }
+      }
+    }
+
     const where = employe_id
       ? { employe_id: parseInt(employe_id, 10) }
       : { user_id: parseInt(user_id, 10) };
@@ -104,7 +131,11 @@ router.get('/', authenticateToken, [
 // POST /api/employe-utilisateur/create-user-from-employe — compte + liaison
 router.post('/create-user-from-employe', authenticateToken, requireRole(RH_USER_ADMIN_ROLES), [
   body('employe_id').isInt({ min: 1 }).withMessage('employe_id requis'),
-  body('mot_de_passe').isLength({ min: 6 }).withMessage('Mot de passe min. 6 caractères'),
+  body('mot_de_passe').custom((value) => {
+    const result = validatePasswordStrength(value);
+    if (!result.ok) throw new Error(result.message);
+    return true;
+  }),
   body('role').optional().isIn(USER_ROLES),
   body('nom').optional().isLength({ min: 2, max: 100 }),
   body('prenom').optional().isLength({ min: 2, max: 100 }),

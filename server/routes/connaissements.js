@@ -206,6 +206,11 @@ router.get('/:id/docs-feri', async (req, res) => {
       return res.status(400).json({ message: 'Identifiant invalide' });
     }
 
+    const access = await ensureManagerBureauConnaissementAccess(req, id);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ message: access.message || 'Accès refusé' });
+    }
+
     const docs = await DocsFeri.findAll({
       where: { docConnaissementId: id },
       order: [['id', 'ASC']]
@@ -234,6 +239,11 @@ router.get('/:id/docs-zip', async (req, res) => {
       return res.status(400).json({ message: 'Identifiant invalide' });
     }
 
+    const access = await ensureManagerBureauConnaissementAccess(req, id);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ message: access.message || 'Accès refusé' });
+    }
+
     const docs = await DocsZip.findAll({
       where: { docConnaissementId: id },
       order: [['id', 'ASC']]
@@ -260,6 +270,11 @@ router.get('/:id/docs', async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     if (Number.isNaN(id) || id < 1) {
       return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const access = await ensureManagerBureauConnaissementAccess(req, id);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ message: access.message || 'Accès refusé' });
     }
 
     const types = String(req.query.types || 'feri,zip,controle')
@@ -309,6 +324,11 @@ router.get('/:id/docs-controle', async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     if (Number.isNaN(id) || id < 1) {
       return res.status(400).json({ message: 'Identifiant invalide' });
+    }
+
+    const access = await ensureManagerBureauConnaissementAccess(req, id);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ message: access.message || 'Accès refusé' });
     }
 
     const docs = await DocsControleBl.findAll({

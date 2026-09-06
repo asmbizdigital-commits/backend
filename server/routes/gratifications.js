@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { Gratification, Employe } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
+const { canReadEmployeData, denyEmployeAccess } = require('../utils/employeAccess');
 
 const router = express.Router();
 
@@ -71,6 +72,10 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/gratifications/employe/:employe_id - Récupérer les gratifications d'un employé
 router.get('/employe/:employe_id', authenticateToken, async (req, res) => {
   try {
+    if (!(await canReadEmployeData(req.user, req.params.employe_id))) {
+      return denyEmployeAccess(res);
+    }
+
     const { employe_id } = req.params;
     const { statut } = req.query;
     
@@ -179,6 +184,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
         success: false,
         message: 'Gratification non trouvée'
       });
+    }
+
+    if (!(await canReadEmployeData(req.user, gratification.employe_id))) {
+      return denyEmployeAccess(res);
     }
     
     res.json({

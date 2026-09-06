@@ -1,5 +1,7 @@
 /**
- * JWT en cookie HttpOnly (anti-XSS) — cross-origin front/back via SameSite=None; Secure.
+ * JWT en cookie HttpOnly (anti-XSS).
+ * Cross-origin (front ≠ API) → SameSite=None; Secure.
+ * Même site (ex. localhost:3000 → localhost:5002) → Lax, Secure optionnel.
  */
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'synapta_at';
 
@@ -18,15 +20,38 @@ function isProduction() {
   return process.env.NODE_ENV === 'production';
 }
 
-/** Cross-site (front ≠ API) → None+Secure ; sinon Lax en local même host. */
-function cookieSameSite() {
-  const forced = String(process.env.AUTH_COOKIE_SAMESITE || '').toLowerCase();
-  if (forced === 'none' || forced === 'lax' || forced === 'strict') return forced;
-  return isProduction() || process.env.AUTH_COOKIE_CROSS_SITE === 'true' ? 'none' : 'lax';
+function isCrossSiteRequest(req) {
+  // Netlify (synaptasys.com) → Render (onrender.com) = toujours cross-site en prod
+  if (process.env.AUTH_COOKIE_CROSS_SITE === 'true') return true;
+  if (process.env.AUTH_COOKIE_CROSS_SITE === 'false') return false;
+  if (isProduction()) return true;
+
+  const origin = req?.headers?.origin;
+  if (!origin) return false;
+  try {
+    const originHost = new URL(origin).hostname.replace(/^www\./, '');
+    const apiHost = String(req.hostname || req.headers?.host || '')
+      .split(':')[0]
+      .replace(/^www\./, '');
+    const localHosts = new Set(['localhost', '127.0.0.1']);
+    if (localHosts.has(originHost) && localHosts.has(apiHost)) {
+      return false;
+    }
+    return Boolean(apiHost) && originHost !== apiHost;
+  } catch {
+    return true;
+  }
 }
 
-function buildAuthCookieOptions(expiresIn) {
-  const sameSite = cookieSameSite();
+function cookieSameSite(req) {
+  const forced = String(process.env.AUTH_COOKIE_SAMESITE || '').toLowerCase();
+  if (forced === 'none' || forced === 'lax' || forced === 'strict') return forced;
+  return isCrossSiteRequest(req) ? 'none' : 'lax';
+}
+
+function buildAuthCookieOptions(expiresIn, req) {
+  const sameSite = cookieSameSite(req);
+  // SameSite=None exige Secure ; en local same-site on reste en HTTP
   const secure =
     sameSite === 'none'
       ? true
@@ -47,25 +72,14 @@ function buildAuthCookieOptions(expiresIn) {
   return options;
 }
 
-function setAuthCookie(res, token, expiresIn) {
-  res.cookie(AUTH_COOKIE_NAME, token, buildAuthCookieOptions(expiresIn));
+function setAuthCookie(res, token, expiresIn, req) {
+  res.cookie(AUTH_COOKIE_NAME, token, buildAuthCookieOptions(expiresIn, req));
 }
 
-function clearAuthCookie(res) {
-  const sameSite = cookieSameSite();
-  const secure =
-    sameSite === 'none'
-      ? true
-      : process.env.AUTH_COOKIE_SECURE === 'true' || isProduction();
-  const options = {
-    httpOnly: true,
-    secure,
-    sameSite,
-    path: '/'
-  };
-  if (process.env.AUTH_COOKIE_DOMAIN) {
-    options.domain = process.env.AUTH_COOKIE_DOMAIN;
-  }
+function clearAuthCookie(res, req) {
+  const options = buildAuthCookieOptions('1h', req);
+  // clearCookie ignore maxAge ; garder sameSite/secure/path alignés
+  delete options.maxAge;
   res.clearCookie(AUTH_COOKIE_NAME, options);
 }
 
@@ -81,7 +95,6 @@ function extractTokenFromRequest(req) {
   return null;
 }
 
-/** Parse Cookie header (sockets) sans cookie-parser. */
 function extractTokenFromCookieHeader(cookieHeader) {
   if (!cookieHeader) return null;
   const parts = String(cookieHeader).split(';');
@@ -101,5 +114,6 @@ module.exports = {
   extractTokenFromRequest,
   extractTokenFromCookieHeader,
   parseDurationToMs,
-  buildAuthCookieOptions
+  buildAuthCookieOptions,
+  isCrossSiteRequest
 };

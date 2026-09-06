@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { Dependant, Employe } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
+const { canReadEmployeData, denyEmployeAccess } = require('../utils/employeAccess');
 
 // Middleware pour valider les données de dépendant
 const validateDependantData = (req, res, next) => {
@@ -126,34 +127,13 @@ router.get('/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/dependants/:id - Récupérer un dépendant par ID
-router.get('/:id', authenticateToken, async (req, res) => {
-  try {
-    const dependant = await Dependant.findByPk(req.params.id);
-    
-    if (!dependant) {
-      return res.status(404).json({
-        success: false,
-        message: 'Dépendant non trouvé'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: dependant
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération du dépendant:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la récupération du dépendant'
-    });
-  }
-});
-
 // GET /api/dependants/employe/:employe_id - Récupérer tous les dépendants d'un employé
 router.get('/employe/:employe_id', authenticateToken, async (req, res) => {
   try {
+    if (!(await canReadEmployeData(req.user, req.params.employe_id))) {
+      return denyEmployeAccess(res);
+    }
+
     const dependants = await Dependant.findAll({
       where: { 
         employe_id: req.params.employe_id,
@@ -172,6 +152,35 @@ router.get('/employe/:employe_id', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des dépendants de l\'employé'
+    });
+  }
+});
+
+// GET /api/dependants/:id - Récupérer un dépendant par ID
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const dependant = await Dependant.findByPk(req.params.id);
+    
+    if (!dependant) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dépendant non trouvé'
+      });
+    }
+
+    if (!(await canReadEmployeData(req.user, dependant.employe_id))) {
+      return denyEmployeAccess(res);
+    }
+    
+    res.json({
+      success: true,
+      data: dependant
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération du dépendant:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération du dépendant'
     });
   }
 });

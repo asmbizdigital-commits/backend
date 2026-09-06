@@ -4,8 +4,23 @@ const { Op } = require('sequelize');
 const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendWelcomeUserEmail } = require('../services/emailService');
+const { validatePasswordStrength } = require('../utils/passwordPolicy');
 
 const router = express.Router();
+
+const passwordStrengthValidator = body('mot_de_passe').custom((value) => {
+  const result = validatePasswordStrength(value);
+  if (!result.ok) throw new Error(result.message);
+  return true;
+});
+
+const optionalPasswordStrengthValidator = body('mot_de_passe')
+  .optional({ checkFalsy: true })
+  .custom((value) => {
+    const result = validatePasswordStrength(value);
+    if (!result.ok) throw new Error(result.message);
+    return true;
+  });
 
 const USER_PROFILE_INCLUDES = [
   {
@@ -323,7 +338,7 @@ router.post('/', [
   body('nom').isLength({ min: 2, max: 100 }),
   body('prenom').isLength({ min: 2, max: 100 }),
   body('email').isEmail().normalizeEmail(),
-  body('mot_de_passe').isLength({ min: 6 }),
+  passwordStrengthValidator,
   body('role').isIn([
     'Agent Chambre', 'Superviseur Resto', 'Superviseur Buanderie', 
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 
@@ -459,6 +474,7 @@ router.put('/:id', [
   body('nom').optional().isLength({ min: 2, max: 100 }),
   body('prenom').optional().isLength({ min: 2, max: 100 }),
   body('email').optional().isEmail().normalizeEmail(),
+  optionalPasswordStrengthValidator,
   body('role').optional().isIn([
     'Agent Chambre', 'Superviseur Resto', 'Superviseur Buanderie', 
     'Superviseur Housing', 'Superviseur RH', 'Superviseur Comptable', 

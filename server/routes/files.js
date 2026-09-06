@@ -377,6 +377,12 @@ router.post('/folders', [
   }
 });
 
+function canAccessFile(req, file) {
+  if (!req.user || !file) return false;
+  if (['Administrateur', 'Patron', 'Web Master'].includes(req.user.role)) return true;
+  return Number(file.user_id) === Number(req.user.id);
+}
+
 // GET /api/files/:id - Get a single file by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -391,6 +397,10 @@ router.get('/:id', async (req, res) => {
 
     if (!file || file.supprime) {
       return res.status(404).json({ error: 'File not found', message: 'Fichier non trouvé' });
+    }
+
+    if (!canAccessFile(req, file)) {
+      return res.status(403).json({ error: 'Access denied', message: 'Accès refusé à ce fichier' });
     }
 
     res.json({ file });
@@ -408,6 +418,10 @@ router.get('/:id/download', async (req, res) => {
 
     if (!file || file.supprime) {
       return res.status(404).json({ error: 'File not found', message: 'Fichier non trouvé' });
+    }
+
+    if (!canAccessFile(req, file)) {
+      return res.status(403).json({ error: 'Access denied', message: 'Accès refusé à ce fichier' });
     }
 
     // Increment download count
@@ -483,6 +497,10 @@ router.delete('/:id', async (req, res) => {
 
     if (!file) {
       return res.status(404).json({ error: 'File not found', message: 'Fichier non trouvé' });
+    }
+
+    if (!canAccessFile(req, file)) {
+      return res.status(403).json({ error: 'Access denied', message: 'Accès refusé à ce fichier' });
     }
 
     // Soft delete

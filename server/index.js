@@ -30,32 +30,47 @@ function assertSecureJwtSecret() {
 assertSecureJwtSecret();
 
 /**
- * CORS entièrement piloté par l’env (modifiable sur Render sans redeploy de code) :
- * - CORS_ORIGINS : liste séparée par des virgules
- * - CORS_ALLOW_ONRENDER : "true" pour autoriser https://*.onrender.com
+ * CORS — origines Netlify / hotel + CORS_ORIGINS (env Render).
+ * Comparaison insensible à la casse (www.Synaptasys.com ≡ www.synaptasys.com).
  */
-const corsAllowedOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+const DEFAULT_CORS_ORIGINS = [
+  'https://www.synaptasys.com',
+  'https://synaptasys.com',
+  'https://hotelbeatricesys.com',
+  'https://www.hotelbeatricesys.com',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001'
+];
+
+const corsAllowedOrigins = [
+  ...new Set([
+    ...DEFAULT_CORS_ORIGINS,
+    ...(process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  ])
+];
+
+const corsAllowedOriginsLower = new Set(
+  corsAllowedOrigins.map((o) => o.toLowerCase())
+);
 
 const corsAllowOnrender =
   String(process.env.CORS_ALLOW_ONRENDER || 'false').toLowerCase() === 'true';
 
-if (corsAllowedOrigins.length === 0) {
-  console.warn(
-    '⚠️ CORS_ORIGINS est vide : aucune origine navigateur ne sera autorisée (sauf abs. Origin). Définissez CORS_ORIGINS sur Render / .env.'
-  );
-} else {
-  console.log(`🔗 CORS origines autorisées (${corsAllowedOrigins.length}) : ${corsAllowedOrigins.join(', ')}`);
-}
+console.log(
+  `🔗 CORS origines autorisées (${corsAllowedOrigins.length}) : ${corsAllowedOrigins.join(', ')}`
+);
 if (corsAllowOnrender) {
   console.log('🔗 CORS_ALLOW_ONRENDER=true → https://*.onrender.com autorisé');
 }
 
 function isCorsOriginAllowed(origin) {
   if (!origin) return true;
-  if (corsAllowedOrigins.includes(origin)) return true;
+  if (corsAllowedOriginsLower.has(String(origin).toLowerCase())) return true;
   if (corsAllowOnrender && /^https:\/\/[\w-]+\.onrender\.com$/i.test(origin)) return true;
   return false;
 }
@@ -65,8 +80,9 @@ const corsOptions = {
     if (isCorsOriginAllowed(origin)) {
       return callback(null, true);
     }
+    // callback(null, false) refuse sans throw → pas de HTTP 500 / stack trace
     console.warn(`CORS blocked origin: ${origin}`);
-    return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -174,7 +190,7 @@ const io = new Server(http, {
   cors: {
     origin: (origin, callback) => {
       if (isCorsOriginAllowed(origin)) return callback(null, true);
-      return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
@@ -480,47 +496,19 @@ app.use('/api/tracking-dossier', require('./routes/tracking-dossier'));
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));
 
-// Health check endpoint
+// Health check — surface publique minimale (détails techniques non exposés)
 app.get('/api/health', async (req, res) => {
   try {
-    // Test database connection
     await sequelize.authenticate();
-    res.json({ 
-      status: 'OK', 
-      message: 'SYNAPTA SYS is running',
-      timestamp: new Date().toISOString(),
-      database: 'Connected',
-      uptime: process.uptime(),
-      cors: {
-        origin: req.headers.origin || 'No origin',
-        environment: process.env.NODE_ENV || 'development',
-        allowedOrigins: ['https://hotelbeatricesys.com', 'http://localhost:3000', 'http://localhost:3001']
-      }
-    });
-  } catch (error) {
-    res.status(503).json({ 
-      status: 'ERROR', 
-      message: 'Database connection failed',
-      timestamp: new Date().toISOString(),
-      database: 'Disconnected',
-      error: error.message
-    });
+    res.json({ status: 'OK' });
+  } catch {
+    res.status(503).json({ status: 'ERROR' });
   }
 });
 
-// CORS test endpoint
+// CORS test — pas de détails d’environnement / allowlist
 app.get('/api/cors-test', (req, res) => {
-  res.json({
-    message: 'CORS test successful',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString(),
-    cors: {
-      requestOrigin: req.headers.origin || 'No origin',
-      environment: process.env.NODE_ENV || 'development',
-      allowedOrigins: ['https://hotelbeatricesys.com', 'http://localhost:3000', 'http://localhost:3001'],
-      isAllowed: ['https://hotelbeatricesys.com', 'http://localhost:3000', 'http://localhost:3001'].includes(req.headers.origin)
-    }
-  });
+  res.json({ status: 'OK' });
 });
 
 // Enhanced error handling middleware
@@ -532,6 +520,14 @@ app.use((err, req, res, next) => {
     method: req.method,
     timestamp: new Date().toISOString()
   });
+
+  const msg = String(err.message || '');
+  if (msg.startsWith('Origin not allowed') || msg.includes('Not allowed by CORS')) {
+    return res.status(403).json({
+      error: 'Origin not allowed',
+      message: 'Origine non autorisée'
+    });
+  }
 
   // Handle Sequelize errors
   if (err.name === 'SequelizeValidationError') {
@@ -568,13 +564,14 @@ app.use((err, req, res, next) => {
     });
   }
 
-  // Default error response (never send null/undefined body)
+  // Default error response — jamais de stack en production
   const status = err.status || 500;
+  const isDev = process.env.NODE_ENV === 'development';
   const body = {
     error: err.error || 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? (err.message || 'Erreur interne du serveur') : 'Erreur interne du serveur'
+    message: isDev ? (err.message || 'Erreur interne du serveur') : 'Une erreur interne est survenue'
   };
-  if (process.env.NODE_ENV === 'development' && err.stack) body.stack = err.stack;
+  if (isDev && err.stack) body.stack = err.stack;
   res.status(status).json(body);
 });
 

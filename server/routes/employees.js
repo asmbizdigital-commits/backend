@@ -16,6 +16,21 @@ const fs = require('fs');
 const path = require('path');
 
 const RH_IMPORT_ROLES = ['Superviseur RH', 'Administrateur', 'Patron'];
+const RH_READ_ROLES = ['Superviseur RH', 'Administrateur', 'Patron', 'Auditeur'];
+
+async function canReadEmployeeRecord(req, employeeId) {
+  if (RH_READ_ROLES.includes(req.user?.role)) return true;
+  try {
+    const EmployeUser = require('../models/EmployeUser');
+    const link = await EmployeUser.findOne({
+      where: { user_id: req.user.id, employe_id: parseInt(employeeId, 10) },
+      attributes: ['id']
+    });
+    return Boolean(link);
+  } catch {
+    return false;
+  }
+}
 
 const excelUpload = multer({
   storage: multer.memoryStorage(),
@@ -255,9 +270,17 @@ router.post(
   }
 );
 
-// GET /api/employees/:id - Récupérer un employé par ID
+// GET /api/employees/:id - Récupérer un employé par ID (RH ou liaison self)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    const allowed = await canReadEmployeeRecord(req, req.params.id);
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès refusé à ce dossier employé'
+      });
+    }
+
     const employee = await Employee.findById(req.params.id);
     
     if (!employee) {

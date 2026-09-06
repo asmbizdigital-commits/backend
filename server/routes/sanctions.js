@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const { Op } = require('sequelize');
 const Sanction = require('../models/Sanction');
 const { authenticateToken } = require('../middleware/auth');
+const { canReadEmployeData, denyEmployeAccess } = require('../utils/employeAccess');
 
 // GET /api/sanctions - Récupérer toutes les sanctions
 router.get('/', authenticateToken, async (req, res) => {
@@ -98,34 +99,13 @@ router.get('/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/sanctions/:id - Récupérer une sanction par ID
-router.get('/:id', authenticateToken, async (req, res) => {
-  try {
-    const sanction = await Sanction.findByPk(req.params.id);
-    
-    if (!sanction) {
-      return res.status(404).json({
-        success: false,
-        message: 'Sanction non trouvée'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: sanction
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération de la sanction:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la récupération de la sanction'
-    });
-  }
-});
-
 // GET /api/sanctions/employe/:employe_id - Récupérer toutes les sanctions d'un employé
 router.get('/employe/:employe_id', authenticateToken, async (req, res) => {
   try {
+    if (!(await canReadEmployeData(req.user, req.params.employe_id))) {
+      return denyEmployeAccess(res);
+    }
+
     const sanctions = await Sanction.findAll({
       where: { 
         employe_id: req.params.employe_id
@@ -143,6 +123,35 @@ router.get('/employe/:employe_id', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des sanctions de l\'employé'
+    });
+  }
+});
+
+// GET /api/sanctions/:id - Récupérer une sanction par ID
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const sanction = await Sanction.findByPk(req.params.id);
+    
+    if (!sanction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sanction non trouvée'
+      });
+    }
+
+    if (!(await canReadEmployeData(req.user, sanction.employe_id))) {
+      return denyEmployeAccess(res);
+    }
+    
+    res.json({
+      success: true,
+      data: sanction
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération de la sanction:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération de la sanction'
     });
   }
 });

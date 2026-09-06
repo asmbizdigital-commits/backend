@@ -115,7 +115,7 @@ router.post('/login', [
       expiresIn,
       tokenVersion: user.token_version || 0
     });
-    setAuthCookie(res, token, expiresIn);
+    setAuthCookie(res, token, expiresIn, req);
 
     const userWithGeo = await loadUserForAuth(user.id);
     const userData = serializeAuthUser(userWithGeo || user);
@@ -123,6 +123,9 @@ router.post('/login', [
     res.json({
       message: 'Connexion réussie',
       user: userData,
+      // Token aussi en JSON : secours si le navigateur n’attache pas encore le cookie
+      // (cross-origin). Le cookie HttpOnly reste la source principale.
+      token,
       expiresIn,
       rememberMe
     });
@@ -152,11 +155,11 @@ router.post('/logout', async (req, res) => {
         /* cookie expiré / invalide */
       }
     }
-    clearAuthCookie(res);
+    clearAuthCookie(res, req);
     res.json({ message: 'Déconnexion réussie' });
   } catch (error) {
     console.error('Logout error:', error);
-    clearAuthCookie(res);
+    clearAuthCookie(res, req);
     res.status(500).json({
       error: 'Logout failed',
       message: 'Erreur lors de la déconnexion'
@@ -190,10 +193,11 @@ router.post('/refresh', authenticateToken, async (req, res) => {
       expiresIn,
       tokenVersion: req.user.token_version || 0
     });
-    setAuthCookie(res, token, expiresIn);
+    setAuthCookie(res, token, expiresIn, req);
 
     res.json({
       message: 'Token rafraîchi',
+      token,
       expiresIn
     });
   } catch (error) {
@@ -352,10 +356,11 @@ router.post('/change-password', [
       expiresIn: JWT_EXPIRES_DEFAULT,
       tokenVersion: user.token_version
     });
-    setAuthCookie(res, token, JWT_EXPIRES_DEFAULT);
+    setAuthCookie(res, token, JWT_EXPIRES_DEFAULT, req);
 
     res.json({
       message: 'Mot de passe modifié avec succès',
+      token,
       expiresIn: JWT_EXPIRES_DEFAULT
     });
   } catch (error) {

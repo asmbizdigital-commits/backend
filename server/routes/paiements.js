@@ -2,6 +2,7 @@ const express = require('express');
 const { body, query, param, validationResult } = require('express-validator');
 const { PaiementSalaire, User, Employe } = require('../models');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { canReadEmployeData, denyEmployeAccess } = require('../utils/employeAccess');
 
 const router = express.Router();
 
@@ -115,6 +116,10 @@ router.get('/employe/:id', [
     }
 
     const { id } = req.params;
+    if (!(await canReadEmployeData(req.user, id))) {
+      return denyEmployeAccess(res);
+    }
+
     const { periode, statut, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 

@@ -18,7 +18,6 @@ router.use(authenticateToken);
 
 function canViewContentieux(user) {
   if (!user) return false;
-  if (user.nom === 'Jimmy') return true;
   const role = user.role;
   const n = normalizeRole(role);
   return (
@@ -31,7 +30,6 @@ function canViewContentieux(user) {
 }
 
 function requireCreateContentieux(req, res, next) {
-  if (req.user?.nom === 'Jimmy') return next();
   if (isRoleExploitationControleDossiers(req.user?.role)) return next();
   return res.status(403).json({
     success: false,

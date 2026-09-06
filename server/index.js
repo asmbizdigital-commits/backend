@@ -2,8 +2,86 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 require('dotenv').config();
+
+const WEAK_JWT_SECRETS = new Set([
+  '',
+  'secret',
+  'jwt_secret',
+  'your-super-secret-jwt-key-change-this-in-production',
+  'change-me',
+  'changeme'
+]);
+
+function assertSecureJwtSecret() {
+  const secret = process.env.JWT_SECRET || '';
+  const weak = WEAK_JWT_SECRETS.has(secret) || secret.length < 32;
+  if (!weak) return;
+  const msg =
+    'JWT_SECRET manquant ou trop faible (min. 32 caractères, pas de placeholder). Définissez une valeur forte dans les variables d’environnement.';
+  if (process.env.NODE_ENV === 'production') {
+    console.error(`FATAL: ${msg}`);
+    process.exit(1);
+  }
+  console.warn(`⚠️ SÉCURITÉ: ${msg} (toléré hors production uniquement)`);
+}
+assertSecureJwtSecret();
+
+/**
+ * CORS entièrement piloté par l’env (modifiable sur Render sans redeploy de code) :
+ * - CORS_ORIGINS : liste séparée par des virgules
+ * - CORS_ALLOW_ONRENDER : "true" pour autoriser https://*.onrender.com
+ */
+const corsAllowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const corsAllowOnrender =
+  String(process.env.CORS_ALLOW_ONRENDER || 'false').toLowerCase() === 'true';
+
+if (corsAllowedOrigins.length === 0) {
+  console.warn(
+    '⚠️ CORS_ORIGINS est vide : aucune origine navigateur ne sera autorisée (sauf abs. Origin). Définissez CORS_ORIGINS sur Render / .env.'
+  );
+} else {
+  console.log(`🔗 CORS origines autorisées (${corsAllowedOrigins.length}) : ${corsAllowedOrigins.join(', ')}`);
+}
+if (corsAllowOnrender) {
+  console.log('🔗 CORS_ALLOW_ONRENDER=true → https://*.onrender.com autorisé');
+}
+
+function isCorsOriginAllowed(origin) {
+  if (!origin) return true;
+  if (corsAllowedOrigins.includes(origin)) return true;
+  if (corsAllowOnrender && /^https:\/\/[\w-]+\.onrender\.com$/i.test(origin)) return true;
+  return false;
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isCorsOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'X-File-Name'
+  ],
+  exposedHeaders: ['Content-Length'],
+  maxAge: 86400
+};
 
 const { sequelize } = require('./config/database');
 // Import models to establish associations
@@ -94,7 +172,10 @@ const http = require('http').createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(http, {
   cors: {
-    origin: true, // accepte toute origine (synaptasys.com, hotelbeatricesys.com, localhost, etc.)
+    origin: (origin, callback) => {
+      if (isCorsOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
@@ -104,23 +185,36 @@ const io = new Server(http, {
 app.set('io', io);
 
 // Socket.io connection handling for chat
-io.use((socket, next) => {
-  // Authentification via token dans le handshake
-  const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
+io.use(async (socket, next) => {
+  const { extractTokenFromCookieHeader } = require('./utils/authCookie');
+  const token =
+    socket.handshake.auth?.token ||
+    socket.handshake.headers.authorization?.replace(/^Bearer\s+/i, '') ||
+    extractTokenFromCookieHeader(socket.handshake.headers.cookie);
+
   if (!token) {
     return next(new Error('Authentication error'));
   }
-  
-  // Vérifier le token
+
   try {
     const jwt = require('jsonwebtoken');
+    const User = require('./models/User');
     const JWT_SECRET = process.env.JWT_SECRET;
     if (!JWT_SECRET) {
       return next(new Error('JWT_SECRET not configured'));
     }
     const decoded = jwt.verify(token, JWT_SECRET);
-    // Le token peut avoir userId ou id selon la structure
-    socket.userId = decoded.userId || decoded.id;
+    const userId = decoded.userId || decoded.id;
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'actif', 'token_version']
+    });
+    if (!user || !user.actif) {
+      return next(new Error('Authentication error'));
+    }
+    if (Number(decoded.tv ?? 0) !== Number(user.token_version || 0)) {
+      return next(new Error('Authentication error'));
+    }
+    socket.userId = userId;
     socket.user = decoded;
     next();
   } catch (err) {
@@ -158,27 +252,23 @@ app.use(helmet({
 }));
 
 // CORS en premier — les réponses 429 du rate limiter doivent inclure Access-Control-Allow-Origin
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cache-Control', 'X-File-Name'],
-  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-  maxAge: 86400
-}));
+app.use(cors(corsOptions));
 
-app.options('*', cors());
+app.options('*', cors(corsOptions));
+
+app.use(cookieParser());
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && isCorsOriginAllowed(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
-  } else {
-    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-File-Name');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, X-File-Name'
+  );
   res.header('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') {
@@ -190,9 +280,11 @@ app.use((req, res, next) => {
 
 function rateLimitWithCors(req, res, _next, options) {
   const origin = req.headers.origin;
-  if (origin) {
+  if (origin && typeof isCorsOriginAllowed === 'function' && isCorsOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else if (!origin) {
+    /* same-origin / non-browser */
   }
   res.status(options.statusCode).json(options.message);
 }
@@ -204,6 +296,18 @@ const loginLimiter = rateLimit({
   message: {
     error: 'Too many login attempts',
     message: 'Trop de tentatives de connexion. Réessayez dans quelques minutes.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitWithCors
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    error: 'Too many reset attempts',
+    message: 'Trop de demandes de réinitialisation. Réessayez dans quelques minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -243,6 +347,7 @@ const apiLimiter = rateLimit({
 });
 
 app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 app.use('/api/', apiLimiter);
 
 // Body parsing middleware with increased limits
@@ -275,8 +380,18 @@ app.use((req, res, next) => {
   next();
 });
 
-// Static file serving
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Static file serving — pas de listing ; types courants uniquement
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '../uploads'), {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders(res) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    }
+  })
+);
 
 // API Routes with error handling
 app.use('/api/auth', authRoutes);
@@ -535,6 +650,13 @@ async function startServer() {
     };
     
     console.log('✅ Database connection ready with connection pooling.');
+
+    try {
+      const { ensureAuthUserColumns } = require('./utils/ensureAuthUserColumns');
+      await ensureAuthUserColumns(sequelize);
+    } catch (err) {
+      console.warn('⚠️ ensureAuthUserColumns:', err.message);
+    }
 
     // Créer tbl_taux_jour si absente (évite 503 sur PUT /api/taux-jour en production)
     try {

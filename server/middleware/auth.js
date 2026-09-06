@@ -1,11 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { extractTokenFromRequest } = require('../utils/authCookie');
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token (cookie HttpOnly prioritaire, sinon Bearer)
 const authenticateToken = async (req, res, next) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = extractTokenFromRequest(req);
 
     if (!token) {
       return res.status(401).json({ 
@@ -16,9 +16,8 @@ const authenticateToken = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Get user from database
     const user = await User.findByPk(decoded.userId, {
-      attributes: { exclude: ['mot_de_passe'] }
+      attributes: { exclude: ['mot_de_passe', 'password_reset_token'] }
     });
 
     if (!user || !user.actif) {
@@ -28,7 +27,17 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    const tokenVersion = Number(user.token_version || 0);
+    const claimVersion = Number(decoded.tv ?? 0);
+    if (claimVersion !== tokenVersion) {
+      return res.status(401).json({
+        error: 'Token revoked',
+        message: 'Session invalidée. Veuillez vous reconnecter.'
+      });
+    }
+
     req.user = user;
+    req.authToken = token;
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
@@ -51,7 +60,6 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// Middleware to check if user has required role
 const requireRole = (requiredRole) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -61,23 +69,8 @@ const requireRole = (requiredRole) => {
       });
     }
 
-    // Jimmy has access to all routes regardless of role
-    if (req.user.nom === 'Jimmy') {
-      return next();
-    }
-
-    // Gérer les tableaux de rôles
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    
-    // Debug logging
-    console.log('🔍 requireRole check:', {
-      userRole: req.user.role,
-      requiredRoles: requiredRoles,
-      route: req.path,
-      method: req.method
-    });
-    
-    // Vérifier si l'utilisateur a un des rôles requis
+
     if (!requiredRoles.includes(req.user.role)) {
       return res.status(403).json({ 
         error: 'Insufficient permissions',
@@ -91,7 +84,6 @@ const requireRole = (requiredRole) => {
   };
 };
 
-// Middleware to check if user can access resource (owner or higher role)
 const canAccessResource = (resourceUserIdField = 'user_id') => {
   return (req, res, next) => {
     if (!req.user) {
@@ -101,19 +93,12 @@ const canAccessResource = (resourceUserIdField = 'user_id') => {
       });
     }
 
-    // Jimmy has access to all resources regardless of ownership
-    if (req.user.nom === 'Jimmy') {
-      return next();
-    }
-
     const resourceUserId = req.body[resourceUserIdField] || req.params[resourceUserIdField] || req.query[resourceUserIdField];
     
-    // Allow if user is Patron or Administrateur
     if (req.user.role === 'Patron' || req.user.role === 'Administrateur') {
       return next();
     }
 
-    // Allow if user owns the resource
     if (resourceUserId && parseInt(resourceUserId) === req.user.id) {
       return next();
     }
@@ -125,12 +110,11 @@ const canAccessResource = (resourceUserIdField = 'user_id') => {
   };
 };
 
-// Generate JWT token
-const generateToken = (userId) => {
+const generateToken = (userId, { expiresIn, tokenVersion = 0 } = {}) => {
   return jwt.sign(
-    { userId },
+    { userId, tv: Number(tokenVersion) || 0 },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+    { expiresIn: expiresIn || process.env.JWT_EXPIRES_IN || '8h' }
   );
 };
 
@@ -139,4 +123,4 @@ module.exports = {
   requireRole,
   canAccessResource,
   generateToken
-}; 
+};

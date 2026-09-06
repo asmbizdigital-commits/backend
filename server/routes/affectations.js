@@ -155,7 +155,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/affectations - Create new assignment
 router.post('/', [
-  // requireRole('Superviseur'), // Temporarily commented for testing
+  requireRole('Superviseur', 'Administrateur', 'Patron'),
   body('utilisateur_id').isInt({ min: 1 }),
   body('chambre_id').isInt({ min: 1 }),
   body('date_affectation').optional().isISO8601(),
@@ -240,7 +240,7 @@ router.post('/', [
 
 // PUT /api/affectations/:id - Update assignment
 router.put('/:id', [
-  // requireRole('Superviseur'), // Temporarily commented for testing
+  requireRole('Superviseur', 'Administrateur', 'Patron'),
   body('utilisateur_id').optional().isInt({ min: 1 }),
   body('chambre_id').optional().isInt({ min: 1 }),
   body('date_affectation').optional().isISO8601(),
@@ -345,7 +345,7 @@ router.put('/:id', [
 
 // DELETE /api/affectations/:id - Delete assignment
 router.delete('/:id', [
-  // requireRole('Administrateur') // Temporarily commented for testing
+  requireRole('Administrateur', 'Patron'),
 ], async (req, res) => {
   try {
     const { id } = req.params;

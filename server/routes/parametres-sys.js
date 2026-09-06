@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const ParametresSys = require('../models/ParametresSys');
 
 const SECTIONS = ['general', 'societe', 'finances', 'facturation', 'affichage', 'type_logiciel'];
@@ -83,6 +83,7 @@ router.get('/', async (req, res) => {
 
 // PUT /api/parametres-sys — met à jour une section (body: { section, data })
 router.put('/', [
+  requireRole('Administrateur', 'Patron', 'Web Master'),
   body('section').isIn(SECTIONS).withMessage('section invalide'),
   body('data').isObject().withMessage('data requis (objet)')
 ], async (req, res) => {

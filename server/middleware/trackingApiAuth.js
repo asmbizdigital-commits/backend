@@ -61,10 +61,6 @@ function authenticateTrackingAccess(req, res, next) {
   }
 
   return authenticateToken(req, res, () => {
-    if (req.user?.nom === 'Jimmy') {
-      req.authMode = 'jwt';
-      return next();
-    }
     if (req.user?.role !== 'Administrateur') {
       return res.status(403).json({
         success: false,
@@ -84,7 +80,7 @@ function requireTrackingAdminJwt(req, res, next) {
       message: 'Endpoint réservé à l’administration (JWT).'
     });
   }
-  if (req.user?.nom === 'Jimmy' || req.user?.role === 'Administrateur') {
+  if (req.user?.role === 'Administrateur') {
     return next();
   }
   return res.status(403).json({ success: false, message: 'Accès administrateur requis.' });

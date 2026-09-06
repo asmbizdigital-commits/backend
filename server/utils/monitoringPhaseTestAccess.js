@@ -17,7 +17,6 @@ function canAccessMonitoringPhaseTest(user) {
 }
 
 function requireMonitoringPhaseTestAccess(req, res, next) {
-  if (req.user?.nom === 'Jimmy') return next();
   if (canAccessMonitoringPhaseTest(req.user)) return next();
   return res.status(403).json({
     success: false,

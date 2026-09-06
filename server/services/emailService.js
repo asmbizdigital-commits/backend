@@ -15,6 +15,12 @@ function getLoginUrl() {
   return `${String(base).replace(/\/$/, '')}/login`;
 }
 
+function getPasswordResetUrl(rawToken) {
+  const base = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000';
+  const token = encodeURIComponent(String(rawToken || ''));
+  return `${String(base).replace(/\/$/, '')}/login?resetToken=${token}`;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -416,10 +422,67 @@ async function sendSygremExportNotificationEmail({
   }
 }
 
+/**
+ * Email de réinitialisation de mot de passe (lien à usage unique, 1 h).
+ */
+async function sendPasswordResetEmail({ email, prenom, nom, resetToken }) {
+  const resend = getResendClient();
+  if (!resend) {
+    console.warn('[email] RESEND_API manquant — email reset non envoyé');
+    return { sent: false, error: 'RESEND_API non configuré' };
+  }
+  if (!email || !resetToken) {
+    return { sent: false, error: 'Email ou token manquant' };
+  }
+
+  const fullName = [prenom, nom].filter(Boolean).join(' ').trim() || 'utilisateur';
+  const resetUrl = getPasswordResetUrl(resetToken);
+  const safeName = escapeHtml(fullName);
+  const safeUrl = escapeHtml(resetUrl);
+
+  const html = `
+<!DOCTYPE html>
+<html><body style="font-family:sans-serif;line-height:1.5;color:#111">
+  <p>Bonjour ${safeName},</p>
+  <p>Une demande de réinitialisation de mot de passe a été faite pour votre compte Synaptasys.</p>
+  <p><a href="${safeUrl}" style="display:inline-block;padding:10px 16px;background:#059669;color:#fff;text-decoration:none;border-radius:6px">Réinitialiser mon mot de passe</a></p>
+  <p style="font-size:13px;color:#555">Ce lien expire dans 1 heure. Si vous n’êtes pas à l’origine de cette demande, ignorez cet email.</p>
+  <p style="font-size:12px;color:#888;word-break:break-all">${safeUrl}</p>
+</body></html>`;
+
+  const text = [
+    `Bonjour ${fullName},`,
+    '',
+    'Réinitialisez votre mot de passe Synaptasys via ce lien (valable 1 h) :',
+    resetUrl,
+    '',
+    'Si vous n’êtes pas à l’origine de cette demande, ignorez cet email.'
+  ].join('\n');
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFromAddress(),
+      to: [email],
+      subject: 'Réinitialisation de votre mot de passe — Synaptasys',
+      html,
+      text
+    });
+    if (error) {
+      console.error('[email] Resend reset error:', error);
+      return { sent: false, error: error.message || String(error) };
+    }
+    return { sent: true, id: data?.id || null };
+  } catch (err) {
+    console.error('[email] reset exception:', err);
+    return { sent: false, error: err.message || 'Échec envoi email' };
+  }
+}
+
 module.exports = {
   sendWelcomeUserEmail,
   sendAssignationBlNotificationEmail,
   sendSygremExportNotificationEmail,
+  sendPasswordResetEmail,
   getResendClient,
   ASSIGNATION_BL_NOTIFY_TO
 };

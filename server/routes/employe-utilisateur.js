@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { body, query, validationResult } = require('express-validator');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
+
+const RH_USER_ADMIN_ROLES = ['Administrateur', 'Patron', 'Superviseur RH'];
 const EmployeUser = require('../models/EmployeUser');
 const Employee = require('../models/Employee');
 const { User, Employe } = require('../models');
@@ -100,7 +102,7 @@ router.get('/', authenticateToken, [
 });
 
 // POST /api/employe-utilisateur/create-user-from-employe — compte + liaison
-router.post('/create-user-from-employe', authenticateToken, [
+router.post('/create-user-from-employe', authenticateToken, requireRole(RH_USER_ADMIN_ROLES), [
   body('employe_id').isInt({ min: 1 }).withMessage('employe_id requis'),
   body('mot_de_passe').isLength({ min: 6 }).withMessage('Mot de passe min. 6 caractères'),
   body('role').optional().isIn(USER_ROLES),
@@ -203,7 +205,7 @@ router.post('/create-user-from-employe', authenticateToken, [
 });
 
 // POST /api/employe-utilisateur — créer une liaison employé ↔ utilisateur
-router.post('/', authenticateToken, [
+router.post('/', authenticateToken, requireRole(RH_USER_ADMIN_ROLES), [
   body('employe_id').isInt({ min: 1 }).withMessage('employe_id requis'),
   body('user_id').isInt({ min: 1 }).withMessage('user_id requis')
 ], async (req, res) => {
@@ -248,7 +250,7 @@ router.post('/', authenticateToken, [
 });
 
 // DELETE /api/employe-utilisateur?employe_id= — supprimer la liaison pour un employé
-router.delete('/', authenticateToken, [
+router.delete('/', authenticateToken, requireRole(RH_USER_ADMIN_ROLES), [
   query('employe_id').optional().isInt({ min: 1 })
 ], async (req, res) => {
   try {

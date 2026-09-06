@@ -34,7 +34,6 @@ const emitChanged = (req) => {
 };
 
 function requireCreateurAssignControleur(req, res, next) {
-  if (req.user.nom === 'Jimmy') return next();
   if (
     req.user.role === 'Administrateur' ||
     isRoleDirecteurOperations(req.user.role) ||
@@ -354,7 +353,6 @@ router.post(
 
       const isAssigneeRole = isRoleExploitationControleDossiers(req.user.role);
       const isCreateur =
-        req.user.nom === 'Jimmy' ||
         req.user.role === 'Administrateur' ||
         isRoleDirecteurOperations(req.user.role) ||
         isResponsableZoneRole(req.user.role);

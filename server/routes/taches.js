@@ -363,11 +363,6 @@ router.put('/:id', [
       canUpdate = true;
     }
     
-    // Check if user is Jimmy (special permissions)
-    if (req.user.nom === 'Jimmy') {
-      canUpdate = true;
-    }
-    
     // Check if user is department manager (if task is linked to a problematique with a department)
     if (tache.problematique_id) {
       const problematique = await Problematique.findByPk(tache.problematique_id, {
@@ -500,11 +495,6 @@ router.post('/:id/start', async (req, res) => {
       canStart = true;
     }
     
-    // Check if user is Jimmy (special permissions)
-    if (req.user.nom === 'Jimmy') {
-      canStart = true;
-    }
-    
     // Check if user is department manager (if task is linked to a problematique with a department)
     if (tache.problematique_id) {
       const problematique = await Problematique.findByPk(tache.problematique_id, {
@@ -578,11 +568,6 @@ router.post('/:id/complete', async (req, res) => {
       canComplete = true;
     }
     
-    // Check if user is Jimmy (special permissions)
-    if (req.user.nom === 'Jimmy') {
-      canComplete = true;
-    }
-    
     // Check if user is department manager (if task is linked to a problematique with a department)
     if (tache.problematique_id) {
       const problematique = await Problematique.findByPk(tache.problematique_id, {
@@ -630,10 +615,10 @@ router.post('/:id/complete', async (req, res) => {
   }
 });
 
-// DELETE /api/taches/:id - Delete task (Administrateur and above, or Jimmy)
+// DELETE /api/taches/:id - Delete task (Administrateur and above)
 router.delete('/:id', async (req, res) => {
   // Check if user has permission to delete tasks
-  if (!req.user.hasPermission('Administrateur') && req.user.nom !== 'Jimmy') {
+  if (!req.user.hasPermission('Administrateur')) {
     return res.status(403).json({ 
       error: 'Insufficient permissions',
       message: 'Permissions insuffisantes pour supprimer cette tâche'

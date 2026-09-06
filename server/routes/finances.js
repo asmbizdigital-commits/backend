@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, validationResult, query } = require('express-validator');
 const { Op } = require('sequelize');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const CompteFin = require('../models/CompteFin');
 const JournalFin = require('../models/JournalFin');
 const EcritureFin = require('../models/EcritureFin');
@@ -20,8 +20,20 @@ const pdfService = require('../services/pdfService');
 // Taux de conversion USD → FC pour les écritures comptables (factures en dollars)
 const TAUX_USD_FC = Number(process.env.TAUX_USD_FC) || 2200;
 
+const FINANCE_ROLES = [
+  'Administrateur',
+  'Patron',
+  'Superviseur Finance',
+  'Superviseur Comptable',
+  'Auditeur',
+  'Guichetier',
+  'Caissier',
+  'Superviseur'
+];
+
 const router = express.Router();
 router.use(authenticateToken);
+router.use(requireRole(FINANCE_ROLES));
 
 // --- Plan comptable (comptes) ---
 // GET /api/finances/comptes

@@ -124,7 +124,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/chambres - Create new room (temporarily allowing all authenticated users for testing)
 router.post('/', [
-  // requireRole('Superviseur'), // Temporarily commented for testing
+  requireRole('Superviseur', 'Administrateur', 'Patron'),
   body('numero').isLength({ min: 1, max: 20 }),
   body('type').isIn(['Chambre', 'Bureau administratif', 'Salle de fête', 'Salle de réunion', 'Restaurant', 'Bar', 'Spa', 'Gym', 'Parking', 'Piscine', 'Jardin', 'Terrasse', 'Cuisine', 'Entrepôt', 'Autre']),
   body('categorie').optional().isIn(['Standard', 'Confort', 'Premium', 'Suite', 'Familiale', 'Accessible']),
@@ -219,7 +219,7 @@ router.post('/', [
 
 // PUT /api/chambres/:id - Update room (temporarily allowing all authenticated users for testing)
 router.put('/:id', [
-  // requireRole('Superviseur'), // Temporarily commented for testing
+  requireRole('Superviseur', 'Administrateur', 'Patron'),
   body('numero').optional().isLength({ min: 1, max: 20 }),
   body('type').optional().isIn(['Chambre', 'Bureau administratif', 'Salle de fête', 'Salle de réunion', 'Restaurant', 'Bar', 'Spa', 'Gym', 'Parking', 'Piscine', 'Jardin', 'Terrasse', 'Cuisine', 'Entrepôt', 'Autre']),
   body('categorie').optional().isIn(['Standard', 'Confort', 'Premium', 'Suite', 'Familiale', 'Accessible']),
@@ -322,7 +322,7 @@ router.put('/:id', [
 
 // DELETE /api/chambres/:id - Delete room (temporarily allowing all authenticated users for testing)
 router.delete('/:id', [
-  // requireRole('Administrateur') // Temporarily commented for testing
+  requireRole('Administrateur', 'Patron'),
 ], async (req, res) => {
   try {
     const { id } = req.params;

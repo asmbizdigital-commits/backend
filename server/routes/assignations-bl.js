@@ -20,7 +20,6 @@ const router = express.Router();
 router.use(authenticateToken);
 
 function requireCanAssignSaisisseur(req, res, next) {
-  if (req.user?.nom === 'Jimmy') return next();
   if (!canAssignSaisisseurDossier(req.user?.role)) {
     return res.status(403).json({
       success: false,

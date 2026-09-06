@@ -68,9 +68,8 @@ const USER_ZONE_VALUES = ['europe', 'asie', 'afrique', 'moyenOrient'];
 // Apply authentication to all routes
 router.use(authenticateToken);
 
-// GET /api/users - Get all users (temporarily allowing all authenticated users for testing)
+// GET /api/users - Liste (authentifié ; nécessaire pour assignations / RH)
 router.get('/', [
-  // requireRole('Administrateur'), // Temporarily commented for testing
   query('nom').optional().isString().trim().isLength({ max: 100 }),
   query('role').optional().isIn([
     'Agent Chambre', 'Superviseur Resto', 'Superviseur Buanderie', 
@@ -173,9 +172,9 @@ router.get('/', [
   }
 });
 
-// GET /api/users/stats/overview - Get user statistics (temporarily allowing all authenticated users for testing)
+// GET /api/users/stats/overview
 router.get('/stats/overview', [
-  // requireRole('Administrateur') // Temporarily commented for testing
+  requireRole('Administrateur', 'Patron'),
 ], async (req, res) => {
   try {
     const totalUsers = await User.count();
@@ -318,9 +317,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/users - Create new user (temporarily allowing all authenticated users for testing)
+// POST /api/users - Create new user (Administrateur only)
 router.post('/', [
-  // requireRole('Administrateur'), // Temporarily commented for testing
+  requireRole('Administrateur'),
   body('nom').isLength({ min: 2, max: 100 }),
   body('prenom').isLength({ min: 2, max: 100 }),
   body('email').isEmail().normalizeEmail(),
@@ -456,6 +455,7 @@ router.post('/', [
 
 // PUT /api/users/:id - Update user
 router.put('/:id', [
+  requireRole('Administrateur'),
   body('nom').optional().isLength({ min: 2, max: 100 }),
   body('prenom').optional().isLength({ min: 2, max: 100 }),
   body('email').optional().isEmail().normalizeEmail(),
@@ -596,9 +596,9 @@ router.put('/:id', [
   }
 });
 
-// DELETE /api/users/:id - Delete user (temporarily allowing all authenticated users for testing)
+// DELETE /api/users/:id - Delete user
 router.delete('/:id', [
-  // requireRole('Patron') // Temporarily commented for testing
+  requireRole('Administrateur', 'Patron'),
 ], async (req, res) => {
   try {
     const { id } = req.params;
@@ -634,9 +634,9 @@ router.delete('/:id', [
   }
 });
 
-// POST /api/users/:id/activate - Activate user (temporarily allowing all authenticated users for testing)
+// POST /api/users/:id/activate
 router.post('/:id/activate', [
-  // requireRole('Administrateur') // Temporarily commented for testing
+  requireRole('Administrateur'),
 ], async (req, res) => {
   try {
     const { id } = req.params;
@@ -675,9 +675,9 @@ router.post('/:id/activate', [
   }
 });
 
-// POST /api/users/:id/deactivate - Deactivate user (temporarily allowing all authenticated users for testing)
+// POST /api/users/:id/deactivate
 router.post('/:id/deactivate', [
-  // requireRole('Administrateur') // Temporarily commented for testing
+  requireRole('Administrateur'),
 ], async (req, res) => {
   try {
     const { id } = req.params;

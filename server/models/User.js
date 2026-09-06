@@ -127,6 +127,20 @@ const User = sequelize.define('User', {
   derniere_connexion: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  /** Incrémenté à la déconnexion / reset MDP → invalide les JWT antérieurs. */
+  token_version: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  },
+  password_reset_token: {
+    type: DataTypes.STRING(128),
+    allowNull: true
+  },
+  password_reset_expires: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'tbl_utilisateurs',
@@ -137,12 +151,9 @@ const User = sequelize.define('User', {
       }
     },
     beforeUpdate: async (user) => {
-      // Si le mot de passe est fourni et qu'il a changé, le hasher
-      if (user.changed('mot_de_passe') && user.mot_de_passe && user.mot_de_passe.length >= 6) {
+      if (user.changed('mot_de_passe') && user.mot_de_passe && user.mot_de_passe.length >= 8) {
         user.mot_de_passe = await bcrypt.hash(user.mot_de_passe, 12);
       }
-      // Si le mot de passe est vide ou trop court, ne pas le modifier
-      // Sequelize conservera l'ancienne valeur
     }
   }
 });

@@ -751,7 +751,8 @@ router.get('/operations-kpis', async (req, res) => {
       if (!Number.isNaN(dTo.getTime())) createdRange[Op.lte] = dTo;
     }
     if (createdRange[Op.gte] || createdRange[Op.lte]) {
-      where.createdAt = createdRange;
+      // Colonne SQL réelle — éviter `createdAt` (Unknown column en WHERE MySQL).
+      where.created_at = createdRange;
     }
     if (Number.isFinite(bureauRaw) && bureauRaw > 0) {
       where.bureauConnaissement = bureauRaw;

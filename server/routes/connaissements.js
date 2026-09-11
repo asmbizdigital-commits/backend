@@ -912,7 +912,8 @@ router.get(
       if (since) {
         const d = new Date(since);
         if (!Number.isNaN(d.getTime())) {
-          where.createdAt = { [Op.gt]: d };
+          // Colonne SQL réelle (underscored) — `createdAt` casse certains WHERE MySQL.
+          where.created_at = { [Op.gt]: d };
         }
       }
 
@@ -927,8 +928,8 @@ router.get(
         if (!Number.isNaN(dTo.getTime())) createdRange[Op.lte] = dTo;
       }
       if (createdRange[Op.gte] || createdRange[Op.lte]) {
-        where.createdAt = {
-          ...(where.createdAt && typeof where.createdAt === 'object' ? where.createdAt : {}),
+        where.created_at = {
+          ...(where.created_at && typeof where.created_at === 'object' ? where.created_at : {}),
           ...createdRange
         };
       }

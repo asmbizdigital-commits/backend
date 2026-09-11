@@ -305,17 +305,38 @@ function rateLimitWithCors(req, res, _next, options) {
   res.status(options.statusCode).json(options.message);
 }
 
-// Rate limiting — login strict, API générale plus permissive (évite déconnexions sous charge)
+// Body parsing avant les rate limiters (clé login = IP + email)
+app.use(express.json({ 
+  limit: '50mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '50mb',
+  parameterLimit: 1000
+}));
+
+// Rate limiting — login : compte uniquement les échecs (évite de bloquer après retries /auth/me)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 30),
+  skipSuccessfulRequests: true,
   message: {
     error: 'Too many login attempts',
     message: 'Trop de tentatives de connexion. Réessayez dans quelques minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: rateLimitWithCors
+  handler: rateLimitWithCors,
+  keyGenerator: (req) => {
+    const email = String(req.body?.email || '')
+      .trim()
+      .toLowerCase();
+    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    return email ? `${ip}:${email}` : String(ip);
+  }
 });
 
 const forgotPasswordLimiter = rateLimit({
@@ -365,19 +386,6 @@ const apiLimiter = rateLimit({
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 app.use('/api/', apiLimiter);
-
-// Body parsing middleware with increased limits
-app.use(express.json({ 
-  limit: '50mb',
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
-app.use(express.urlencoded({ 
-  extended: true, 
-  limit: '50mb',
-  parameterLimit: 1000
-}));
 
 // Request timeout middleware
 app.use((req, res, next) => {

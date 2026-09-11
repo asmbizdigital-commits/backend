@@ -848,6 +848,10 @@ router.get(
   [
     query('since').optional().isString().trim(),
     query('updated_since').optional().isString().trim(),
+    query('date_from').optional().isString().trim(),
+    query('date_to').optional().isString().trim(),
+    query('bureau_id').optional().isInt({ min: 1 }),
+    query('bureau_connaissement').optional().isInt({ min: 1 }),
     query('ids').optional().isString().trim(),
     query('page').optional().isInt({ min: 1 }),
     query('status').optional().isString().trim(),
@@ -871,6 +875,10 @@ router.get(
       const {
         since,
         updated_since: updatedSince,
+        date_from: dateFromRaw,
+        date_to: dateToRaw,
+        bureau_id: bureauIdRaw,
+        bureau_connaissement: bureauConnRaw,
         ids: idsRaw,
         status,
         stage: stageRaw,
@@ -906,6 +914,28 @@ router.get(
         if (!Number.isNaN(d.getTime())) {
           where.createdAt = { [Op.gt]: d };
         }
+      }
+
+      // Fenêtre created_at (dashboard opérations / listes filtrées)
+      const createdRange = {};
+      if (dateFromRaw) {
+        const dFrom = new Date(dateFromRaw);
+        if (!Number.isNaN(dFrom.getTime())) createdRange[Op.gte] = dFrom;
+      }
+      if (dateToRaw) {
+        const dTo = new Date(dateToRaw);
+        if (!Number.isNaN(dTo.getTime())) createdRange[Op.lte] = dTo;
+      }
+      if (createdRange[Op.gte] || createdRange[Op.lte]) {
+        where.createdAt = {
+          ...(where.createdAt && typeof where.createdAt === 'object' ? where.createdAt : {}),
+          ...createdRange
+        };
+      }
+
+      const bureauFilter = parseInt(String(bureauIdRaw || bureauConnRaw || ''), 10);
+      if (Number.isFinite(bureauFilter) && bureauFilter > 0) {
+        where.bureauConnaissement = bureauFilter;
       }
 
       if (updatedSince) {

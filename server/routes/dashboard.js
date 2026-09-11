@@ -718,4 +718,140 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/dashboard/operations-kpis
+ * Agrégats légers pour le cockpit opérations (sans charger tout le catalogue).
+ * Query: date_from, date_to, bureau_id
+ */
+router.get('/operations-kpis', async (req, res) => {
+  try {
+    const { Op } = require('sequelize');
+    const Connaissement = require('../models/Connaissement');
+    const AssignationBL = require('../models/AssignationBL');
+    const AssignationBLControleur = require('../models/AssignationBLControleur');
+    const {
+      buildManagerBureauConnaissementWhere,
+      loadUserGeo
+    } = require('../utils/managerBureauConnaissementAccess');
+    const { isManagerBureauRole, isResponsableZoneRole } = require('../utils/userRoles');
+    const { buildResponsableZoneConnaissementWhere } = require('../utils/responsableZoneConnaissementAccess');
+
+    const where = {};
+    const dateFromRaw = String(req.query.date_from || '').trim();
+    const dateToRaw = String(req.query.date_to || '').trim();
+    const bureauRaw = parseInt(String(req.query.bureau_id || req.query.bureau_connaissement || ''), 10);
+
+    const createdRange = {};
+    if (dateFromRaw) {
+      const dFrom = new Date(dateFromRaw);
+      if (!Number.isNaN(dFrom.getTime())) createdRange[Op.gte] = dFrom;
+    }
+    if (dateToRaw) {
+      const dTo = new Date(dateToRaw);
+      if (!Number.isNaN(dTo.getTime())) createdRange[Op.lte] = dTo;
+    }
+    if (createdRange[Op.gte] || createdRange[Op.lte]) {
+      where.createdAt = createdRange;
+    }
+    if (Number.isFinite(bureauRaw) && bureauRaw > 0) {
+      where.bureauConnaissement = bureauRaw;
+    }
+
+    if (isManagerBureauRole(req.user?.role)) {
+      const userGeo = await loadUserGeo(req.user.id);
+      const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
+      if (geoWhere) Object.assign(where, geoWhere);
+    }
+    if (isResponsableZoneRole(req.user?.role)) {
+      const zoneWhere = await buildResponsableZoneConnaissementWhere(req.user);
+      if (zoneWhere) Object.assign(where, zoneWhere);
+    }
+
+    const activeAssignStatuts = ['Assignée', 'En cours', 'Terminée'];
+
+    const [total, exported, declared, validated, controlled, idRows] = await Promise.all([
+      Connaissement.count({ where }),
+      Connaissement.count({ where: { ...where, isExported: true } }),
+      Connaissement.count({
+        where: {
+          ...where,
+          [Op.or]: [
+            { isDeclared: true },
+            { declarationNumber: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] } }
+          ]
+        }
+      }),
+      Connaissement.count({
+        where: {
+          ...where,
+          [Op.or]: [
+            { isValidated: true },
+            { numeroFeri: { [Op.and]: [{ [Op.ne]: null }, { [Op.ne]: '' }] } }
+          ]
+        }
+      }),
+      Connaissement.count({ where: { ...where, isControlledByController: true } }),
+      Connaissement.findAll({ where, attributes: ['id'], raw: true })
+    ]);
+
+    const blIds = idRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
+    let assigned = 0;
+    if (blIds.length) {
+      const assignedSet = new Set();
+      const chunkSize = 2000;
+      for (let i = 0; i < blIds.length; i += chunkSize) {
+        const chunk = blIds.slice(i, i + chunkSize);
+        const [saisi, ctrl] = await Promise.all([
+          AssignationBL.findAll({
+            where: {
+              connaissementId: { [Op.in]: chunk },
+              statut: { [Op.in]: activeAssignStatuts }
+            },
+            attributes: ['connaissementId'],
+            raw: true
+          }),
+          AssignationBLControleur.findAll({
+            where: {
+              connaissementId: { [Op.in]: chunk },
+              statut: { [Op.in]: activeAssignStatuts }
+            },
+            attributes: ['connaissementId'],
+            raw: true
+          })
+        ]);
+        for (const r of saisi) assignedSet.add(Number(r.connaissementId));
+        for (const r of ctrl) assignedSet.add(Number(r.connaissementId));
+      }
+      assigned = assignedSet.size;
+    }
+
+    const unassigned = Math.max(0, total - assigned);
+
+    res.json({
+      success: true,
+      kpis: {
+        total,
+        assigned,
+        unassigned,
+        exported,
+        declared,
+        validated,
+        controlled
+      },
+      filters: {
+        date_from: dateFromRaw || null,
+        date_to: dateToRaw || null,
+        bureau_id: Number.isFinite(bureauRaw) && bureauRaw > 0 ? bureauRaw : null
+      },
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('GET /api/dashboard/operations-kpis', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du calcul des KPI opérations'
+    });
+  }
+});
+
 module.exports = router; 

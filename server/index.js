@@ -370,6 +370,7 @@ const apiLimiter = rateLimit({
     if (req.method === 'GET' && req.path === '/assignations-bl') return true;
     if (req.method === 'GET' && req.path === '/assignations-bl-controleur') return true;
     if (req.method === 'GET' && req.path === '/dashboard/stats') return true;
+    if (req.method === 'GET' && req.path === '/dashboard/operations-kpis') return true;
     if (req.method === 'GET' && req.path === '/monitoring-phase-test/today') return true;
     if (
       req.method === 'GET' &&

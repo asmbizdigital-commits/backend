@@ -13,11 +13,75 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const CloudinaryImageService = require('../services/cloudinaryImageService');
 const AssignationBL = require('../models/AssignationBL');
 const AssignationBLControleur = require('../models/AssignationBLControleur');
+const Connaissement = require('../models/Connaissement');
 const { logDossierActivity, ACTION_TYPES } = require('../utils/dossierActivityLog');
 const { isResponsableZoneRole } = require('../utils/userRoles');
 const imageService = new CloudinaryImageService();
 
 const router = express.Router();
+
+const CONN_DOSSIER_ATTRS = [
+  'id',
+  'blNumber',
+  'numeroDossier',
+  'declarationNumber',
+  'numeroFeri',
+  'isDeclared',
+  'isValidated',
+  'isControlledByController'
+];
+
+/** Lie tâche → dossier B/L (traitement et/ou contrôle). */
+async function loadDossierLieForTask(taskProId) {
+  const [saisiLink, ctrlLink] = await Promise.all([
+    AssignationBL.findOne({
+      where: { taskProId },
+      include: [
+        {
+          model: Connaissement,
+          as: 'connaissement',
+          attributes: CONN_DOSSIER_ATTRS,
+          required: false
+        }
+      ],
+      order: [['id', 'DESC']]
+    }),
+    AssignationBLControleur.findOne({
+      where: { taskProId },
+      include: [
+        {
+          model: Connaissement,
+          as: 'connaissement',
+          attributes: CONN_DOSSIER_ATTRS,
+          required: false
+        }
+      ],
+      order: [['id', 'DESC']]
+    })
+  ]);
+
+  const fromCtrl = ctrlLink?.connaissement || null;
+  const fromSaisi = saisiLink?.connaissement || null;
+  const doc = fromCtrl || fromSaisi;
+  if (!doc) return null;
+
+  const plain = typeof doc.toJSON === 'function' ? doc.toJSON() : doc;
+  const hasControle = Boolean(ctrlLink);
+  const hasTraitement = Boolean(saisiLink);
+
+  return {
+    id: plain.id,
+    bl_number: plain.blNumber ?? plain.bl_number ?? null,
+    numero_dossier: plain.numeroDossier ?? plain.numero_dossier ?? null,
+    declaration_number: plain.declarationNumber ?? plain.declaration_number ?? null,
+    numero_feri: plain.numeroFeri ?? plain.numero_feri ?? null,
+    is_declared: Boolean(plain.isDeclared ?? plain.is_declared),
+    is_validated: Boolean(plain.isValidated ?? plain.is_validated),
+    source: hasControle && hasTraitement ? 'both' : hasControle ? 'controle' : 'traitement',
+    assignation_traitement_id: saisiLink?.id ?? null,
+    assignation_controle_id: ctrlLink?.id ?? null
+  };
+}
 
 /** IDs des tâches créées via assignation contrôle par ce Responsable Zone. */
 async function getResponsableZoneControleTaskIds(userId) {
@@ -540,6 +604,13 @@ router.get('/:id', async (req, res) => {
         commentaire_parent_id: commentData.commentaire_parent_id || null
       };
     });
+
+    try {
+      taskData.dossier_lie = await loadDossierLieForTask(task.id);
+    } catch (linkErr) {
+      console.error('task-pro dossier_lie:', linkErr.message);
+      taskData.dossier_lie = null;
+    }
 
     res.json({ task: taskData });
 

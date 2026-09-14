@@ -372,6 +372,7 @@ const apiLimiter = rateLimit({
     if (req.method === 'GET' && req.path === '/dashboard/stats') return true;
     if (req.method === 'GET' && req.path === '/dashboard/operations-kpis') return true;
     if (req.method === 'GET' && req.path === '/monitoring-phase-test/today') return true;
+    if (req.method === 'GET' && req.path === '/monitoring-bureau/today') return true;
     if (
       req.method === 'GET' &&
       (/^\/connaissements\/\d+\/docs-(feri|zip|controle)$/.test(req.path) ||
@@ -500,6 +501,7 @@ app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 app.use('/api/connexions-responsables', connexionsResponsablesRoutes);
 app.use('/api/contentieux-dossiers', contentieuxDossiersRoutes);
 app.use('/api/monitoring-phase-test', require('./routes/monitoring-phase-test'));
+app.use('/api/monitoring-bureau', require('./routes/monitoring-bureau'));
 app.use('/api/tracking-dossier', require('./routes/tracking-dossier'));
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)

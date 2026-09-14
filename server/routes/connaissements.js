@@ -706,7 +706,7 @@ async function enrichConnaissementRows(rows) {
             connaissementId: { [Op.in]: blIds },
             statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
-          attributes: ['id', 'connaissementId', 'assigneeId', 'createdAt', 'priorite', 'statut'],
+          attributes: ['id', 'connaissementId', 'assigneeId', 'taskProId', 'createdAt', 'priorite', 'statut'],
           order: [['createdAt', 'DESC']]
         }),
         AssignationBL.findAll({
@@ -714,7 +714,7 @@ async function enrichConnaissementRows(rows) {
             connaissementId: { [Op.in]: blIds },
             statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
           },
-          attributes: ['connaissementId', 'assigneeId', 'createdAt', 'priorite', 'statut'],
+          attributes: ['id', 'connaissementId', 'assigneeId', 'taskProId', 'createdAt', 'priorite', 'statut'],
           order: [['createdAt', 'DESC']]
         })
       ]);
@@ -813,6 +813,12 @@ async function enrichConnaissementRows(rows) {
     json.controle_priorite = json.controlePriorite;
     json.saisiPriorite = saisiAss?.priorite || null;
     json.saisi_priorite = json.saisiPriorite;
+    json.saisiAssignationId = saisiAss?.id ?? null;
+    json.saisi_assignation_id = json.saisiAssignationId;
+    json.saisiTaskProId = saisiAss?.taskProId ?? saisiAss?.task_pro_id ?? null;
+    json.saisi_task_pro_id = json.saisiTaskProId;
+    json.controleTaskProId = controleAss?.taskProId ?? controleAss?.task_pro_id ?? null;
+    json.controle_task_pro_id = json.controleTaskProId;
     /** Support client = id_support_client → users (fallback nom_support_client). */
     const supportId = json.idSupportClient ?? json.id_support_client;
     const fromUser = toUserPayload(supportId);

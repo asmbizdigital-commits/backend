@@ -261,10 +261,11 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 5002;
 
-// Security middleware
+// Security middleware — CORP cross-origin obligatoire (SPA Netlify ≠ API Render)
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable CSP for development
-  crossOriginEmbedderPolicy: false
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
 // CORS en premier — les réponses 429 du rate limiter doivent inclure Access-Control-Allow-Origin

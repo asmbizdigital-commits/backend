@@ -66,10 +66,11 @@ function buildAuthCookieOptions(expiresIn, req) {
     maxAge: parseDurationToMs(expiresIn)
   };
 
-  // CHIPS : aide Chrome quand le cookie est traité comme tiers (Netlify → Render)
+  // Partitioned (CHIPS) désactivé par défaut : certains navigateurs rejettent le cookie
+  // et cassent la session si le proxy Netlify / CORS n’est pas parfaitement aligné.
   if (
     sameSite === 'none' &&
-    String(process.env.AUTH_COOKIE_PARTITIONED || 'true').toLowerCase() !== 'false'
+    String(process.env.AUTH_COOKIE_PARTITIONED || '').toLowerCase() === 'true'
   ) {
     options.partitioned = true;
   }

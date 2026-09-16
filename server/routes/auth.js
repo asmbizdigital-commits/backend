@@ -14,11 +14,6 @@ const JWT_EXPIRES_DEFAULT = process.env.JWT_EXPIRES_IN || '8h';
 const JWT_EXPIRES_REMEMBER = process.env.JWT_EXPIRES_REMEMBER || '7d';
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 h
 
-/** JWT aussi en JSON : secours navigateur si cookie tiers bloqué (Netlify↔Render). Cookie HttpOnly reste principal. AUTH_OMIT_TOKEN_IN_BODY=true pour forcer cookie-only. */
-function shouldReturnTokenInBody() {
-  return String(process.env.AUTH_OMIT_TOKEN_IN_BODY || '').toLowerCase() !== 'true';
-}
-
 function authSessionPayload(extra = {}) {
   return { ...extra };
 }
@@ -133,10 +128,9 @@ router.post('/login', [
       message: 'Connexion réussie',
       user: userData,
       expiresIn,
-      rememberMe
+      rememberMe,
+      token
     });
-    // Cookie HttpOnly + JWT en JSON (secours cookies tiers bloqués)
-    if (shouldReturnTokenInBody()) body.token = token;
     res.json(body);
   } catch (error) {
     console.error('Login error:', error);
@@ -206,9 +200,9 @@ router.post('/refresh', authenticateToken, async (req, res) => {
 
     const body = authSessionPayload({
       message: 'Token rafraîchi',
-      expiresIn
+      expiresIn,
+      token
     });
-    if (shouldReturnTokenInBody()) body.token = token;
     res.json(body);
   } catch (error) {
     console.error('Token refresh error:', error);
@@ -370,9 +364,9 @@ router.post('/change-password', [
 
     const body = authSessionPayload({
       message: 'Mot de passe modifié avec succès',
-      expiresIn: JWT_EXPIRES_DEFAULT
+      expiresIn: JWT_EXPIRES_DEFAULT,
+      token
     });
-    if (shouldReturnTokenInBody()) body.token = token;
     res.json(body);
   } catch (error) {
     console.error('Change password error:', error);

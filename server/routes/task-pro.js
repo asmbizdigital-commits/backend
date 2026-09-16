@@ -16,6 +16,10 @@ const AssignationBLControleur = require('../models/AssignationBLControleur');
 const Connaissement = require('../models/Connaissement');
 const { logDossierActivity, ACTION_TYPES } = require('../utils/dossierActivityLog');
 const { isResponsableZoneRole } = require('../utils/userRoles');
+const {
+  applyManagerBureauTaskScope,
+  assertManagerBureauCanAccessTask
+} = require('../utils/managerBureauTaskAccess');
 const imageService = new CloudinaryImageService();
 
 const router = express.Router();
@@ -140,6 +144,26 @@ async function assertResponsableZoneCanAccessTask(req, taskId) {
   if (!isResponsableZoneRole(req.user?.role)) return true;
   const allowedIds = await getResponsableZoneControleTaskIds(req.user.id);
   return allowedIds.includes(Number(taskId));
+}
+
+/** Applique les scopes rôle (RZ puis Manager Bureau). */
+async function applyRoleTaskScopes(whereClause, req) {
+  const rz = await applyResponsableZoneControleTaskScope(whereClause, req);
+  if (rz.empty) return rz;
+  return applyManagerBureauTaskScope(whereClause, req);
+}
+
+async function assertRoleCanAccessTask(req, taskId) {
+  if (!(await assertResponsableZoneCanAccessTask(req, taskId))) return false;
+  if (!(await assertManagerBureauCanAccessTask(req, taskId))) return false;
+  return true;
+}
+
+function roleTaskAccessDeniedMessage(req) {
+  if (isResponsableZoneRole(req.user?.role)) {
+    return 'Accès limité aux tâches de contrôle que vous avez assignées.';
+  }
+  return 'Accès limité aux tâches liées aux dossiers de votre bureau international.';
 }
 
 /** Parse YYYY-MM-DD en borne locale (évite le décalage UTC de new Date('YYYY-MM-DD')). */
@@ -310,7 +334,7 @@ router.get('/', [
 
     const { date_from, date_to } = req.query;
     applyDateCreationRange(whereClause, date_from, date_to);
-    await applyResponsableZoneControleTaskScope(whereClause, req);
+    await applyRoleTaskScopes(whereClause, req);
 
     // Order by position for Kanban view
     const order = view === 'kanban' 
@@ -416,7 +440,7 @@ router.get('/kanban', async (req, res) => {
     }
 
     applyDateCreationRange(whereClause, date_from, date_to);
-    const scope = await applyResponsableZoneControleTaskScope(whereClause, req);
+    const scope = await applyRoleTaskScopes(whereClause, req);
     if (scope.empty) {
       return res.json({ columns: emptyKanbanColumns() });
     }
@@ -465,7 +489,7 @@ router.get('/kanban', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const baseWhere = { supprime: false, archive: false };
-    await applyResponsableZoneControleTaskScope(baseWhere, req);
+    await applyRoleTaskScopes(baseWhere, req);
 
     // Use colonne_kanban for stats to match the Kanban view (more reliable than statut)
     const stats = {
@@ -547,15 +571,12 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    if (isResponsableZoneRole(req.user?.role)) {
-      const allowed = await assertResponsableZoneCanAccessTask(req, task.id);
-      if (!allowed) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
         return res.status(403).json({
           error: 'Forbidden',
-          message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+          message: roleTaskAccessDeniedMessage(req)
         });
       }
-    }
 
     // Increment view count
     task.vues = (task.vues || 0) + 1;
@@ -775,10 +796,10 @@ router.put('/:id', [
       });
     }
 
-    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        message: roleTaskAccessDeniedMessage(req)
       });
     }
 
@@ -997,10 +1018,10 @@ router.patch('/:id/move', [
       });
     }
 
-    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        message: roleTaskAccessDeniedMessage(req)
       });
     }
 
@@ -1058,10 +1079,10 @@ router.patch('/:id/assign', [
       });
     }
 
-    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        message: roleTaskAccessDeniedMessage(req)
       });
     }
 
@@ -1164,10 +1185,10 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        message: roleTaskAccessDeniedMessage(req)
       });
     }
 
@@ -1206,10 +1227,10 @@ router.patch('/:id/archive', async (req, res) => {
       });
     }
 
-    if (!(await assertResponsableZoneCanAccessTask(req, task.id))) {
+    if (!(await assertRoleCanAccessTask(req, task.id))) {
       return res.status(403).json({
         error: 'Forbidden',
-        message: 'Accès limité aux tâches de contrôle que vous avez assignées.'
+        message: roleTaskAccessDeniedMessage(req)
       });
     }
 

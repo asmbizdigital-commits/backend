@@ -1,7 +1,8 @@
 /**
- * JWT en cookie HttpOnly (anti-XSS).
- * Cross-origin (front ≠ API) → SameSite=None; Secure.
- * Même site (ex. localhost:3000 → localhost:5002) → Lax, Secure optionnel.
+ * JWT en cookie HttpOnly (anti-XSS) — le JS navigateur ne peut pas lire le token.
+ * Cross-origin (Netlify ↔ Render) → SameSite=None; Secure (Strict impossible hors même site).
+ * Même site (localhost:3000 → localhost:5002) → Lax, Secure optionnel.
+ * Forcer : AUTH_COOKIE_SAMESITE=strict|lax|none ; AUTH_COOKIE_CROSS_SITE=true|false.
  */
 const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'synapta_at';
 

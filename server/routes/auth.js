@@ -14,6 +14,16 @@ const JWT_EXPIRES_DEFAULT = process.env.JWT_EXPIRES_IN || '8h';
 const JWT_EXPIRES_REMEMBER = process.env.JWT_EXPIRES_REMEMBER || '7d';
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 h
 
+/** Ne jamais renvoyer le JWT au JS navigateur (XSS). Scripts CI : AUTH_RETURN_TOKEN_IN_BODY=true */
+function shouldReturnTokenInBody() {
+  return String(process.env.AUTH_RETURN_TOKEN_IN_BODY || '').toLowerCase() === 'true';
+}
+
+function authSessionPayload(extra = {}) {
+  const payload = { ...extra };
+  return payload;
+}
+
 const USER_GEO_INCLUDES = [
   {
     model: require('../models/DirectionProvinciale'),
@@ -120,15 +130,15 @@ router.post('/login', [
     const userWithGeo = await loadUserForAuth(user.id);
     const userData = serializeAuthUser(userWithGeo || user);
 
-    res.json({
+    const body = authSessionPayload({
       message: 'Connexion réussie',
       user: userData,
-      // Token aussi en JSON : secours si le navigateur n’attache pas encore le cookie
-      // (cross-origin). Le cookie HttpOnly reste la source principale.
-      token,
       expiresIn,
       rememberMe
     });
+    // Cookie HttpOnly uniquement — pas de JWT dans le JSON (anti vol XSS)
+    if (shouldReturnTokenInBody()) body.token = token;
+    res.json(body);
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({
@@ -195,11 +205,12 @@ router.post('/refresh', authenticateToken, async (req, res) => {
     });
     setAuthCookie(res, token, expiresIn, req);
 
-    res.json({
+    const body = authSessionPayload({
       message: 'Token rafraîchi',
-      token,
       expiresIn
     });
+    if (shouldReturnTokenInBody()) body.token = token;
+    res.json(body);
   } catch (error) {
     console.error('Token refresh error:', error);
     res.status(500).json({
@@ -358,11 +369,12 @@ router.post('/change-password', [
     });
     setAuthCookie(res, token, JWT_EXPIRES_DEFAULT, req);
 
-    res.json({
+    const body = authSessionPayload({
       message: 'Mot de passe modifié avec succès',
-      token,
       expiresIn: JWT_EXPIRES_DEFAULT
     });
+    if (shouldReturnTokenInBody()) body.token = token;
+    res.json(body);
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({

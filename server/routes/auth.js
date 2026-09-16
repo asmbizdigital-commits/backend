@@ -14,14 +14,13 @@ const JWT_EXPIRES_DEFAULT = process.env.JWT_EXPIRES_IN || '8h';
 const JWT_EXPIRES_REMEMBER = process.env.JWT_EXPIRES_REMEMBER || '7d';
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 h
 
-/** Ne jamais renvoyer le JWT au JS navigateur (XSS). Scripts CI : AUTH_RETURN_TOKEN_IN_BODY=true */
+/** JWT aussi en JSON : secours navigateur si cookie tiers bloqué (Netlify↔Render). Cookie HttpOnly reste principal. AUTH_OMIT_TOKEN_IN_BODY=true pour forcer cookie-only. */
 function shouldReturnTokenInBody() {
-  return String(process.env.AUTH_RETURN_TOKEN_IN_BODY || '').toLowerCase() === 'true';
+  return String(process.env.AUTH_OMIT_TOKEN_IN_BODY || '').toLowerCase() !== 'true';
 }
 
 function authSessionPayload(extra = {}) {
-  const payload = { ...extra };
-  return payload;
+  return { ...extra };
 }
 
 const USER_GEO_INCLUDES = [
@@ -136,7 +135,7 @@ router.post('/login', [
       expiresIn,
       rememberMe
     });
-    // Cookie HttpOnly uniquement — pas de JWT dans le JSON (anti vol XSS)
+    // Cookie HttpOnly + JWT en JSON (secours cookies tiers bloqués)
     if (shouldReturnTokenInBody()) body.token = token;
     res.json(body);
   } catch (error) {

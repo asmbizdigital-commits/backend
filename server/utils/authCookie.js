@@ -66,6 +66,14 @@ function buildAuthCookieOptions(expiresIn, req) {
     maxAge: parseDurationToMs(expiresIn)
   };
 
+  // CHIPS : aide Chrome quand le cookie est traité comme tiers (Netlify → Render)
+  if (
+    sameSite === 'none' &&
+    String(process.env.AUTH_COOKIE_PARTITIONED || 'true').toLowerCase() !== 'false'
+  ) {
+    options.partitioned = true;
+  }
+
   if (process.env.AUTH_COOKIE_DOMAIN) {
     options.domain = process.env.AUTH_COOKIE_DOMAIN;
   }

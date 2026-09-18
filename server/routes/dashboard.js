@@ -855,4 +855,92 @@ router.get('/operations-kpis', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/dashboard/weekly-activity-report
+ * Rapport hebdomadaire (JSON + HTML) — scoped Manager Bureau / bureau sélectionné.
+ * Query: bureau_id (requis hors Manager Bureau), date_from, date_to (optionnel → sam.→ven. 15h)
+ */
+router.get('/weekly-activity-report', async (req, res) => {
+  try {
+    const { buildWeeklyBureauActivityReport } = require('../services/weeklyBureauActivityReport');
+    const {
+      buildManagerBureauConnaissementWhere,
+      loadUserGeo
+    } = require('../utils/managerBureauConnaissementAccess');
+    const {
+      isManagerBureauRole,
+      isRoleAdministrateur,
+      isRoleDirecteurOperations,
+      isChefExecutifOperationsRole
+    } = require('../utils/userRoles');
+
+    const role = req.user?.role;
+    const roleNorm = String(role || '').toLowerCase();
+    const canExport =
+      isManagerBureauRole(role) ||
+      isRoleAdministrateur(role) ||
+      isRoleDirecteurOperations(role) ||
+      isChefExecutifOperationsRole(role) ||
+      roleNorm === 'patron' ||
+      roleNorm === 'superviseur rh';
+
+    if (!canExport) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Export du rapport hebdomadaire non autorisé pour ce rôle'
+      });
+    }
+
+    let bureauId = parseInt(String(req.query.bureau_id || ''), 10);
+
+    if (isManagerBureauRole(role)) {
+      const userGeo = await loadUserGeo(req.user.id);
+      const geoWhere = await buildManagerBureauConnaissementWhere(userGeo);
+      const forced = Number(
+        geoWhere?.bureauConnaissement ??
+          userGeo?.bureau_international_id ??
+          userGeo?.bureauInternationalId ??
+          req.user?.bureauInternationalId ??
+          req.user?.bureau_international_id
+      );
+      if (!Number.isFinite(forced) || forced < 1) {
+        return res.status(400).json({
+          error: 'Bureau manquant',
+          message: 'Aucun bureau international n’est rattaché à votre compte.'
+        });
+      }
+      bureauId = forced;
+    } else if (!Number.isFinite(bureauId) || bureauId < 1) {
+      return res.status(400).json({
+        error: 'bureau_id requis',
+        message: 'Sélectionnez un bureau pour exporter le rapport hebdomadaire.'
+      });
+    }
+
+    const report = await buildWeeklyBureauActivityReport({
+      bureauId,
+      dateFrom: String(req.query.date_from || '').trim() || null,
+      dateTo: String(req.query.date_to || '').trim() || null
+    });
+
+    const format = String(req.query.format || 'json').toLowerCase();
+    if (format === 'html') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(report.html);
+    }
+
+    return res.json({
+      success: true,
+      ...report
+    });
+  } catch (error) {
+    console.error('GET /api/dashboard/weekly-activity-report', error);
+    const status = error.status || 500;
+    res.status(status).json({
+      error: 'Weekly report failed',
+      message: error.message || 'Erreur lors de la génération du rapport hebdomadaire'
+    });
+  }
+});
+
 module.exports = router; 

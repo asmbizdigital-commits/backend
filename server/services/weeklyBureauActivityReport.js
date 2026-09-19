@@ -374,16 +374,18 @@ function renderWeeklyReportHtml(data) {
       const badge = r.eligible
         ? `<span class="pill ok">Classé</span>`
         : `<span class="pill mute">&lt; ${data.slaRules.minRated} actions</span>`;
-      return `<tr>
-          <td class="rank">${r.rang}</td>
-          <td>${esc(r.label)}</td>
-          <td class="num">${r.pct != null ? `${r.pct} %` : '—'}</td>
-          <td class="num">${fmtNum(r.inSla)} / ${fmtNum(r.measured)}</td>
-          <td class="num">${fmtNum(r.dossiers)}</td>
-          <td class="num">${fmtNum(r.exportes)}</td>
-          <td class="num">${fmtNum(r.declares)}</td>
-          <td>${badge}</td>
-        </tr>`;
+      return `<div class="rank-row avoid-break">
+          <div class="rank-num">${r.rang}</div>
+          <div class="rank-main">
+            <div class="rank-name">${esc(r.label)}</div>
+            <div class="rank-meta">${fmtNum(r.dossiers)} dossiers · ${fmtNum(r.exportes)} exp. · ${fmtNum(r.declares)} décl.</div>
+          </div>
+          <div class="rank-sla">
+            <div class="rank-pct">${r.pct != null ? `${r.pct} %` : '—'}</div>
+            <div class="rank-frac">${fmtNum(r.inSla)}/${fmtNum(r.measured)}</div>
+          </div>
+          <div class="rank-status">${badge}</div>
+        </div>`;
     })
     .join('\n');
 
@@ -397,7 +399,6 @@ function renderWeeklyReportHtml(data) {
     --ink: #0f172a;
     --muted: #64748b;
     --line: #e2e8f0;
-    --bg: #f8fafc;
     --card: #ffffff;
     --accent: #0d9488;
     --accent-soft: #ccfbf1;
@@ -408,105 +409,151 @@ function renderWeeklyReportHtml(data) {
     font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
     color: var(--ink);
     background: #fff;
-    font-size: 11.5px;
-    line-height: 1.45;
+    font-size: 10.5px;
+    line-height: 1.35;
   }
-  .page { max-width: 820px; margin: 0 auto; padding: 8px 4px 24px; }
+  .page { max-width: 760px; margin: 0 auto; padding: 4px 2px 12px; }
   .hero {
     background: linear-gradient(135deg, #0f766e 0%, #115e59 55%, #0f172a 100%);
     color: #fff;
-    border-radius: 18px;
-    padding: 28px 28px 24px;
-    margin-bottom: 22px;
+    border-radius: 12px;
+    padding: 14px 16px 12px;
+    margin-bottom: 12px;
   }
   .hero .eyebrow {
     text-transform: uppercase;
-    letter-spacing: 0.14em;
-    font-size: 10px;
+    letter-spacing: 0.12em;
+    font-size: 9px;
     opacity: 0.75;
-    margin-bottom: 10px;
+    margin-bottom: 4px;
   }
   .hero h1 {
-    margin: 0 0 8px;
-    font-size: 24px;
+    margin: 0 0 4px;
+    font-size: 18px;
     font-weight: 650;
     letter-spacing: -0.02em;
   }
-  .hero p { margin: 0; opacity: 0.9; font-size: 12.5px; max-width: 36em; }
+  .hero p { margin: 0; opacity: 0.9; font-size: 11px; max-width: 40em; }
   .meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px 18px;
-    margin-top: 18px;
-    font-size: 11px;
-    opacity: 0.88;
+    gap: 6px 8px;
+    margin-top: 10px;
+    font-size: 9.5px;
+    opacity: 0.9;
   }
   .meta span {
     background: rgba(255,255,255,0.12);
-    padding: 6px 10px;
+    padding: 3px 8px;
     border-radius: 999px;
   }
-  h2 { font-size: 15px; margin: 26px 0 12px; letter-spacing: -0.01em; }
-  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  h2 {
+    font-size: 12.5px;
+    margin: 12px 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
   .card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 16px 16px 14px;
+    border-radius: 10px;
+    padding: 8px 10px;
   }
   .card .label {
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 8.5px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+    margin-bottom: 3px;
   }
   .card .value {
-    font-size: 26px;
+    font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.03em;
+    line-height: 1.1;
   }
-  .card .hint { margin-top: 6px; color: var(--muted); font-size: 10.5px; }
+  .card .hint { margin-top: 2px; color: var(--muted); font-size: 9px; }
   .note {
     background: var(--accent-soft);
     border: 1px solid #99f6e4;
     color: #115e59;
-    border-radius: 12px;
-    padding: 12px 14px;
-    font-size: 11px;
-    margin: 14px 0 8px;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 10px;
+    margin: 8px 0 4px;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    background: var(--card);
+  .method {
+    color: var(--muted);
+    font-size: 9.5px;
+    margin: 0 0 6px;
+  }
+  .rank-list {
     border: 1px solid var(--line);
-    border-radius: 14px;
-    overflow: hidden;
+    border-radius: 10px;
+    overflow: visible;
+    background: #fff;
   }
-  th, td {
-    padding: 9px 10px;
-    text-align: left;
-    border-bottom: 1px solid var(--line);
-    font-size: 11px;
+  .rank-head, .rank-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 72px 64px;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 8px;
   }
-  th {
+  .rank-head {
     background: #f1f5f9;
     color: var(--muted);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    font-size: 9.5px;
+    font-size: 8.5px;
+    border-bottom: 1px solid var(--line);
   }
-  tr:last-child td { border-bottom: none; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.rank { font-weight: 700; color: var(--accent); width: 36px; }
+  .rank-row {
+    border-bottom: 1px solid var(--line);
+    min-height: 34px;
+  }
+  .rank-row:last-child { border-bottom: none; }
+  .rank-num {
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .rank-name {
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--ink);
+    line-height: 1.2;
+    word-break: break-word;
+  }
+  .rank-meta {
+    color: var(--muted);
+    font-size: 8.5px;
+    margin-top: 1px;
+  }
+  .rank-sla { text-align: right; }
+  .rank-pct {
+    font-weight: 700;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rank-frac {
+    color: var(--muted);
+    font-size: 8.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rank-status { text-align: right; }
   .pill {
     display: inline-block;
-    padding: 2px 8px;
+    padding: 2px 7px;
     border-radius: 999px;
-    font-size: 9.5px;
+    font-size: 8.5px;
     font-weight: 600;
+    white-space: nowrap;
   }
   .pill.ok { background: #d1fae5; color: #065f46; }
   .pill.mute { background: #f1f5f9; color: #64748b; }
@@ -515,42 +562,55 @@ function renderWeeklyReportHtml(data) {
     counter-increment: rec;
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 14px 12px 44px;
+    border-radius: 10px;
+    padding: 8px 10px 8px 36px;
     position: relative;
-    margin-bottom: 8px;
+    margin-bottom: 5px;
+    font-size: 10px;
   }
   ol.recs li::before {
     content: counter(rec);
     position: absolute;
-    left: 12px;
-    top: 12px;
-    width: 22px;
-    height: 22px;
+    left: 8px;
+    top: 7px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
     background: var(--accent);
     color: #fff;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    line-height: 22px;
+    line-height: 18px;
     text-align: center;
   }
   .foot {
-    margin-top: 28px;
-    padding-top: 14px;
+    margin-top: 12px;
+    padding-top: 8px;
     border-top: 1px solid var(--line);
     color: var(--muted);
-    font-size: 10px;
+    font-size: 9px;
   }
-  .method { color: var(--muted); font-size: 10.5px; }
+  .avoid-break,
+  .card,
+  .note,
+  .hero,
+  .rank-row,
+  ol.recs li {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  h2, .rank-head {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
 </style>
 </head>
 <body>
   <div class="page" id="weekly-report-root">
-    <header class="hero">
+    <header class="hero avoid-break">
       <div class="eyebrow">Synaptasys · ASM-PADS</div>
       <h1>Activité — ${esc(data.bureau.nom)}</h1>
-      <p>Indicateurs opérationnels du circuit dossiers (saisie → déclaration → contrôle), rapport hebdomadaire.</p>
+      <p>Indicateurs opérationnels du circuit dossiers (saisie → déclaration → contrôle).</p>
       <div class="meta">
         <span>${esc(data.bureau.nom)} · ${esc(data.bureau.code || '')}</span>
         <span>Période ${esc(data.period.label)}</span>
@@ -562,7 +622,7 @@ function renderWeeklyReportHtml(data) {
     <div class="grid">
       ${cards
         .map(
-          (c) => `<div class="card">
+          (c) => `<div class="card avoid-break">
         <div class="label">${esc(c.label)}</div>
         <div class="value">${fmtNum(c.value)}</div>
         <div class="hint">${esc(c.hint)}</div>
@@ -571,7 +631,7 @@ function renderWeeklyReportHtml(data) {
         .join('\n')}
     </div>
 
-    <div class="note">
+    <div class="note avoid-break">
       Lecture funnel : sur <strong>${fmtNum(k.assignes_saisisseurs)}</strong> dossiers assignés aux saisisseurs,
       <strong>${fmtNum(k.traites_exportes)}</strong> exportés (${data.funnel.export_vs_assign ?? '—'} %),
       <strong>${fmtNum(k.declares)}</strong> déclarés (${data.funnel.declare_vs_export ?? '—'} % des exportés).
@@ -584,33 +644,24 @@ function renderWeeklyReportHtml(data) {
     <p class="method">
       % SLA = actions dans les délais ÷ actions chronométrées
       (export ≤ ${esc(data.slaRules.export)}, déclaration ≤ ${esc(data.slaRules.declaration)}, checklist ≤ ${esc(data.slaRules.checklist)}).
-      Seuil classement : ≥ ${data.slaRules.minRated} actions mesurées.
-      SLA global : <strong>${data.pctGlobal != null ? `${data.pctGlobal} %` : '—'}</strong>.
+      Seuil : ≥ ${data.slaRules.minRated} actions. SLA global : <strong>${data.pctGlobal != null ? `${data.pctGlobal} %` : '—'}</strong>.
     </p>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Agent</th>
-          <th class="num">% SLA</th>
-          <th class="num">Dans délais / mesurées</th>
-          <th class="num">Dossiers</th>
-          <th class="num">Exportés</th>
-          <th class="num">Déclarés</th>
-          <th>Statut</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rankRows || '<tr><td colspan="8">Aucune activité saisisseur mesurée sur la période.</td></tr>'}
-      </tbody>
-    </table>
+    <div class="rank-list">
+      <div class="rank-head avoid-break">
+        <div>#</div>
+        <div>Agent</div>
+        <div style="text-align:right">% SLA</div>
+        <div style="text-align:right">Statut</div>
+      </div>
+      ${rankRows || '<div class="rank-row avoid-break"><div></div><div class="rank-name">Aucune activité saisisseur mesurée.</div></div>'}
+    </div>
 
     <h2>Recommandations</h2>
     <ol class="recs">
-      ${(data.recommendations || []).map((r) => `<li>${esc(r)}</li>`).join('\n')}
+      ${(data.recommendations || []).map((r) => `<li class="avoid-break">${esc(r)}</li>`).join('\n')}
     </ol>
 
-    <div class="foot">
+    <div class="foot avoid-break">
       Rapport d’activité Synaptasys — ${esc(data.bureau.nom)} — période ${esc(data.period.label)}.
       Document destiné au pilotage opérationnel ASM-PADS.
     </div>

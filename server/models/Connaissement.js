@@ -11,7 +11,7 @@ const Connaissement = sequelize.define(
       autoIncrement: true
     },
     blNumber: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.STRING(64),
       allowNull: false,
       unique: true,
       field: 'bl_number'

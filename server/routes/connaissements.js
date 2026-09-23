@@ -1443,9 +1443,11 @@ router.patch('/:id/fiche-detail', express.json({ limit: '2mb' }), async (req, re
       });
     }
     console.error('PATCH /api/connaissements/:id/fiche-detail', error);
+    const sqlMessage = error.parent?.sqlMessage || error.original?.sqlMessage || error.message;
     return res.status(500).json({
       success: false,
-      message: 'Erreur lors de l’enregistrement de la fiche'
+      message: 'Erreur lors de l’enregistrement de la fiche',
+      detail: sqlMessage || undefined
     });
   }
 });

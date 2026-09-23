@@ -262,13 +262,13 @@ async function resolveFactureIdForConnaissement(connaissementId, ci, transaction
       replacements: [
         connaissementId,
         String(invNum).slice(0, 50),
-        ci.date || new Date().toISOString().slice(0, 10),
-        ci.contract_number || null,
-        fin.currency || 'USD',
-        fin.fob_value ?? null,
-        fin.ocean_freight ?? null,
-        fin.insurance ?? null,
-        fin.total_cip_value ?? null
+        sanitizeDateOnly(ci.date) || new Date().toISOString().slice(0, 10),
+        nonEmptyString(ci.contract_number) ? String(ci.contract_number).slice(0, 50) : null,
+        (fin.currency && String(fin.currency).trim()) || 'USD',
+        toNullableDecimal(fin.fob_value),
+        toNullableDecimal(fin.ocean_freight),
+        toNullableDecimal(fin.insurance),
+        toNullableDecimal(fin.total_cip_value)
       ],
       transaction
     }
@@ -293,10 +293,77 @@ async function ingestUnifiedExtract(connaissementId, payload) {
   return saveFicheAsmDetail(id, payload || {});
 }
 
+/** Longueur max alignée sur les N° B/L réels (CMR-…, HLCUSZ…). */
+const BL_NUMBER_MAX_LEN = 64;
+
 function isInvalidDateLiteral(value) {
   if (value == null || value === '') return true;
   const s = String(value).trim().toLowerCase();
   return !s || s === 'invalid date' || s.includes('invalid');
+}
+
+/** DECIMAL MySQL : null si vide / non numérique (évite Incorrect decimal value: ''). */
+function toNullableDecimal(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const s = String(value).trim().replace(',', '.');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function nonEmptyString(value) {
+  if (value == null) return false;
+  const s = String(value).trim();
+  return s !== '' && s.toLowerCase() !== 'invalid date';
+}
+
+/** La fiche front envoie toujours un objet commercial_invoice (même vide). */
+function hasMeaningfulCommercialInvoice(ci) {
+  if (!ci || typeof ci !== 'object') return false;
+  if (ci.facture_id != null && String(ci.facture_id).trim() !== '') return true;
+  if (ci.factureId != null && String(ci.factureId).trim() !== '') return true;
+  if (nonEmptyString(ci.invoice_number) || nonEmptyString(ci.date) || nonEmptyString(ci.contract_number)) {
+    return true;
+  }
+  const fin = ci.financials || {};
+  if (
+    toNullableDecimal(fin.fob_value) != null ||
+    toNullableDecimal(fin.ocean_freight) != null ||
+    toNullableDecimal(fin.insurance) != null ||
+    toNullableDecimal(fin.total_cip_value) != null
+  ) {
+    return true;
+  }
+  const bank = ci.banking_info || {};
+  if (
+    nonEmptyString(bank.beneficiary) ||
+    nonEmptyString(bank.bank_name) ||
+    nonEmptyString(bank.swift_code) ||
+    nonEmptyString(bank.account_number)
+  ) {
+    return true;
+  }
+  return Array.isArray(ci.items) && ci.items.length > 0;
+}
+
+function hasMeaningfulCustoms(cd) {
+  if (!cd || typeof cd !== 'object') return false;
+  return (
+    nonEmptyString(cd.feri_number) ||
+    nonEmptyString(cd.bv_number) ||
+    nonEmptyString(cd.feri_validation_date)
+  );
+}
+
+function hasMeaningfulBanking(bank) {
+  if (!bank || typeof bank !== 'object') return false;
+  return (
+    nonEmptyString(bank.beneficiary) ||
+    nonEmptyString(bank.bank_name) ||
+    nonEmptyString(bank.swift_code) ||
+    nonEmptyString(bank.account_number)
+  );
 }
 
 /** DATE / DATEONLY MySQL — null si vide ou invalide. */
@@ -591,7 +658,10 @@ async function saveFicheAsmDetail(connaissementId, body) {
 
     await doc.update(
       {
-        blNumber: bd.bl_number != null ? String(bd.bl_number).slice(0, 20) : doc.blNumber,
+        blNumber:
+          bd.bl_number != null
+            ? String(bd.bl_number).trim().slice(0, BL_NUMBER_MAX_LEN)
+            : doc.blNumber,
         carrier: bd.carrier != null ? String(bd.carrier).slice(0, 100) : doc.carrier,
         shipperName: ship.name != null ? String(ship.name).slice(0, 255) : doc.shipperName,
         shipperAddress: ship.address != null ? String(ship.address) : doc.shipperAddress,
@@ -619,15 +689,19 @@ async function saveFicheAsmDetail(connaissementId, body) {
           cargo.goods_description !== undefined ? cargo.goods_description : doc.goodsDescription,
         totalPackages: cargo.total_packages !== undefined ? cargo.total_packages : doc.totalPackages,
         totalWeightKg:
-          cargo.total_weight_kg !== undefined && cargo.total_weight_kg !== ''
-            ? cargo.total_weight_kg
+          cargo.total_weight_kg !== undefined
+            ? toNullableDecimal(cargo.total_weight_kg) ?? doc.totalWeightKg
             : doc.totalWeightKg,
         totalMeasurementCbm:
-          cargo.total_measurement_cbm !== undefined && cargo.total_measurement_cbm !== ''
-            ? cargo.total_measurement_cbm
+          cargo.total_measurement_cbm !== undefined
+            ? toNullableDecimal(cargo.total_measurement_cbm) ?? doc.totalMeasurementCbm
             : doc.totalMeasurementCbm,
         hsCodeIndicated:
-          cargo.hs_code_indicated !== undefined ? cargo.hs_code_indicated : doc.hsCodeIndicated
+          cargo.hs_code_indicated !== undefined
+            ? cargo.hs_code_indicated
+              ? String(cargo.hs_code_indicated).slice(0, 20)
+              : null
+            : doc.hsCodeIndicated
       },
       { transaction: t }
     );
@@ -666,7 +740,7 @@ async function saveFicheAsmDetail(connaissementId, body) {
     }
 
     const cd = body.customs_documents;
-    if (cd) {
+    if (cd && hasMeaningfulCustoms(cd)) {
       await sequelize.query(
         `INSERT INTO documents_douaniers (connaissement_id, feri_number, feri_validation_date, bv_number)
          VALUES (:cid, :feri, :feri_d, :bv)
@@ -678,9 +752,9 @@ async function saveFicheAsmDetail(connaissementId, body) {
         {
           replacements: {
             cid: id,
-            feri: cd.feri_number || null,
+            feri: nonEmptyString(cd.feri_number) ? String(cd.feri_number).slice(0, 50) : null,
             feri_d: sanitizeDateOnly(cd.feri_validation_date),
-            bv: cd.bv_number || null
+            bv: nonEmptyString(cd.bv_number) ? String(cd.bv_number).slice(0, 50) : null
           },
           transaction: t
         }
@@ -688,7 +762,7 @@ async function saveFicheAsmDetail(connaissementId, body) {
     }
 
     const ci = body.commercial_invoice;
-    if (ci) {
+    if (ci && hasMeaningfulCommercialInvoice(ci)) {
       let factureId = null;
       const rawFid = ci.facture_id ?? ci.factureId;
       if (rawFid != null && String(rawFid).trim() !== '') {
@@ -716,14 +790,16 @@ async function saveFicheAsmDetail(connaissementId, body) {
           {
             replacements: {
               fid: factureId,
-              inv: ci.invoice_number || null,
+              inv: nonEmptyString(ci.invoice_number) ? String(ci.invoice_number).slice(0, 50) : null,
               idate: sanitizeDateOnly(ci.date),
-              contract: ci.contract_number ?? null,
-              cur: fin.currency || null,
-              fob: fin.fob_value ?? null,
-              freight: fin.ocean_freight ?? null,
-              ins: fin.insurance ?? null,
-              total: fin.total_cip_value ?? null
+              contract: nonEmptyString(ci.contract_number)
+                ? String(ci.contract_number).slice(0, 50)
+                : null,
+              cur: nonEmptyString(fin.currency) ? String(fin.currency).slice(0, 3) : null,
+              fob: toNullableDecimal(fin.fob_value),
+              freight: toNullableDecimal(fin.ocean_freight),
+              ins: toNullableDecimal(fin.insurance),
+              total: toNullableDecimal(fin.total_cip_value)
             },
             transaction: t
           }
@@ -731,7 +807,7 @@ async function saveFicheAsmDetail(connaissementId, body) {
       }
 
       const bank = ci.banking_info;
-      if (bank && factureId) {
+      if (bank && factureId && hasMeaningfulBanking(bank)) {
         const swift =
           bank.swift_code != null ? String(bank.swift_code).trim().slice(0, 20) || null : null;
         await sequelize.query(
@@ -746,10 +822,12 @@ async function saveFicheAsmDetail(connaissementId, body) {
           {
             replacements: {
               fid: factureId,
-              ben: bank.beneficiary || '-',
-              bname: bank.bank_name || '-',
+              ben: nonEmptyString(bank.beneficiary) ? String(bank.beneficiary).slice(0, 255) : '-',
+              bname: nonEmptyString(bank.bank_name) ? String(bank.bank_name).slice(0, 255) : '-',
               swift,
-              acc: bank.account_number || null
+              acc: nonEmptyString(bank.account_number)
+                ? String(bank.account_number).slice(0, 50)
+                : null
             },
             transaction: t
           }
@@ -783,8 +861,8 @@ async function saveFicheAsmDetail(connaissementId, body) {
               cn: String(co.container_number).slice(0, 20),
               sn: co.seal_number ? String(co.seal_number).slice(0, 20) : null,
               tp: co.type ? String(co.type).slice(0, 10) : null,
-              wk: co.weight_kg ?? null,
-              mcb: co.measurement_cbm ?? null
+              wk: toNullableDecimal(co.weight_kg),
+              mcb: toNullableDecimal(co.measurement_cbm)
             },
             transaction: t
           }

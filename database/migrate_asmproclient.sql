@@ -70,7 +70,7 @@ DROP TABLE IF EXISTS `connaissements`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `connaissements` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `bl_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `bl_number` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
   `carrier` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `shipper_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `shipper_address` text COLLATE utf8mb4_unicode_ci NOT NULL,

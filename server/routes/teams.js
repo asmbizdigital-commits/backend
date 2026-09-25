@@ -143,6 +143,36 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * Token ACS pour rejoindre une réunion Teams directement dans Synaptasys.
+ */
+router.post('/calling/token', authenticateToken, async (req, res) => {
+  try {
+    const acs = require('../services/acsCallingService');
+    const displayName =
+      req.body?.displayName ||
+      [req.user.prenom, req.user.nom].filter(Boolean).join(' ') ||
+      req.user.email ||
+      'Synaptasys';
+    const data = await acs.createCallingToken(displayName);
+    return res.json({ success: true, data });
+  } catch (e) {
+    if (e.code === 'ACS_NOT_CONFIGURED') {
+      return res.status(503).json({
+        success: false,
+        code: e.code,
+        message: e.message
+      });
+    }
+    console.error('ACS token error:', e.message);
+    return res.status(500).json({
+      success: false,
+      code: 'ACS_TOKEN_FAILED',
+      message: 'Impossible de créer le jeton d’appel.'
+    });
+  }
+});
+
 router.get('/meetings', authenticateToken, async (req, res) => {
   try {
     const data = await teamsService.listMeetings(req.user.id, {

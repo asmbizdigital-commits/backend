@@ -63,12 +63,14 @@ function formatMeeting(row, participants = []) {
 async function getStatus(userId) {
   const cfg = getMicrosoftConfig();
   const account = await TeamsAccount.findOne({ where: { userId } });
+  const acs = require('./acsCallingService');
   return {
     configured: cfg.configured,
     connected: Boolean(account),
     tenantId: cfg.tenantId,
     scopes: cfg.scopes,
     adminConsentUrl: cfg.configured ? graph.buildAdminConsentUrl() : null,
+    inAppCallingConfigured: acs.isAcsConfigured(),
     account: account
       ? {
           microsoftEmail: account.microsoftEmail,

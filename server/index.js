@@ -504,6 +504,7 @@ app.use('/api/contentieux-dossiers', contentieuxDossiersRoutes);
 app.use('/api/monitoring-phase-test', require('./routes/monitoring-phase-test'));
 app.use('/api/monitoring-bureau', require('./routes/monitoring-bureau'));
 app.use('/api/tracking-dossier', require('./routes/tracking-dossier'));
+app.use('/api/teams', require('./routes/teams'));
 
 // Vérification que les routes Mines sont chargées (répond 200 si le backend a bien redémarré)
 app.get('/api/mines', (req, res) => res.json({ ok: true, message: 'Mines API (redevances, etc.)' }));

@@ -327,7 +327,7 @@ async function cancelCalendarEvent(userId, eventId) {
  */
 async function listCalendarOnlineMeetings(userId, { from, to } = {}) {
   const { accessToken, account } = await getValidAccessToken(userId);
-  const start = from ? new Date(from) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const start = from ? new Date(from) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const end = to
     ? new Date(to)
     : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000); // +60 jours
@@ -355,9 +355,20 @@ async function listCalendarOnlineMeetings(userId, { from, to } = {}) {
   const toIso = (dateTime) => {
     if (!dateTime) return null;
     const raw = String(dateTime).trim();
-    if (/Z$|[+-]\d{2}:\d{2}$/.test(raw)) return new Date(raw).toISOString();
-    // Avec Prefer UTC, Graph renvoie un datetime « floating » en UTC
-    return new Date(`${raw.replace(/\.\d+$/, '')}Z`).toISOString();
+    if (/Z$|[+-]\d{2}:\d{2}$/.test(raw)) {
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    // Graph: "2026-09-25T14:31:00.0000000" en UTC avec Prefer
+    const cleaned = raw.replace(/\.\d+$/, '');
+    const d = new Date(`${cleaned}Z`);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  };
+
+  const extractJoinFromBody = (preview) => {
+    if (!preview) return null;
+    const m = String(preview).match(/https:\/\/teams\.microsoft\.com\/[^\s<>"']+/i);
+    return m ? m[0].replace(/[.,;)]+$/, '') : null;
   };
 
   const items = Array.isArray(data?.value) ? data.value : [];
@@ -367,7 +378,8 @@ async function listCalendarOnlineMeetings(userId, { from, to } = {}) {
       const hasJoin =
         Boolean(ev.onlineMeeting?.joinUrl) ||
         Boolean(ev.onlineMeetingUrl) ||
-        Boolean(ev.isOnlineMeeting);
+        Boolean(ev.isOnlineMeeting) ||
+        /teams\.microsoft\.com/i.test(String(ev.bodyPreview || ''));
       return hasJoin;
     })
     .map((ev) => {
@@ -378,7 +390,10 @@ async function listCalendarOnlineMeetings(userId, { from, to } = {}) {
         .toLowerCase();
       const isOrganizer = Boolean(myEmail && organizerEmail === myEmail);
       const joinUrl =
-        ev.onlineMeeting?.joinUrl || ev.onlineMeetingUrl || null;
+        ev.onlineMeeting?.joinUrl ||
+        ev.onlineMeetingUrl ||
+        extractJoinFromBody(ev.bodyPreview) ||
+        null;
       const attendees = Array.isArray(ev.attendees) ? ev.attendees : [];
       return {
         id: `ms:${ev.id}`,

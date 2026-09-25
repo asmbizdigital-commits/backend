@@ -9,11 +9,18 @@ const { sequelize } = require(path.join(ROOT, 'backend/server/config/database'))
 
 (async () => {
   const sqlPath = path.join(ROOT, 'backend/database/create_tbl_teams_integration.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf8');
+  let sql = fs.readFileSync(sqlPath, 'utf8');
+  // Retirer commentaires ligne (-- …) sans supprimer les CREATE qui suivent
+  sql = sql
+    .split('\n')
+    .map((line) => (line.trimStart().startsWith('--') ? '' : line))
+    .join('\n');
+
   const statements = sql
     .split(/;\s*\n/)
     .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith('--'));
+    .filter((s) => s.length > 0);
+
   try {
     for (const stmt of statements) {
       await sequelize.query(stmt);

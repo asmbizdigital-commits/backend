@@ -56,13 +56,34 @@ router.get('/auth', authenticateToken, async (req, res) => {
 
 /**
  * Callback OAuth Microsoft (pas de JWT app — state signé).
+ * Gère aussi le retour adminconsent (?admin_consent=True).
  * Redirige vers le frontend.
  */
 router.get('/auth/callback', async (req, res) => {
   const cfg = getMicrosoftConfig();
   const front = cfg.frontendUrl.replace(/\/$/, '');
   try {
-    const { code, state, error, error_description: errDesc } = req.query;
+    const {
+      code,
+      state,
+      error,
+      error_description: errDesc,
+      admin_consent: adminConsent
+    } = req.query;
+
+    // Retour du flux « Admin consent » (org-wide)
+    if (adminConsent != null && !code) {
+      const ok = String(adminConsent).toLowerCase() === 'true';
+      if (ok) {
+        return res.redirect(`${front}/teams?teams=admin_consent_ok`);
+      }
+      const q = new URLSearchParams({
+        teams: 'error',
+        message: String(errDesc || error || 'admin_consent_denied').slice(0, 200)
+      });
+      return res.redirect(`${front}/teams?${q}`);
+    }
+
     if (error) {
       const q = new URLSearchParams({
         teams: 'error',
@@ -76,12 +97,22 @@ router.get('/auth/callback', async (req, res) => {
     const result = await teamsService.handleOAuthCallback(String(code), String(state));
     return res.redirect(result.redirectTo);
   } catch (e) {
-    console.error('Teams OAuth callback:', e.message);
+    console.error('Teams OAuth callback:', e.message, e.code || e.name || '', e.errors || '');
     const q = new URLSearchParams({
       teams: 'error',
       message: (e.message || 'oauth_failed').slice(0, 200)
     });
     return res.redirect(`${front}/teams?${q}`);
+  }
+});
+
+/** URL consentement administrateur (org-wide) */
+router.get('/auth/admin-consent', authenticateToken, async (req, res) => {
+  try {
+    const data = await teamsService.getAdminConsentUrl();
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
   }
 });
 
@@ -117,7 +148,8 @@ router.get('/meetings', authenticateToken, async (req, res) => {
     const data = await teamsService.listMeetings(req.user.id, {
       from: req.query.from,
       to: req.query.to,
-      status: req.query.status
+      status: req.query.status,
+      includeCalendar: req.query.includeCalendar
     });
     return res.json({ success: true, data });
   } catch (e) {

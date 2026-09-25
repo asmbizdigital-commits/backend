@@ -29,6 +29,7 @@ function formatMeeting(row, participants = []) {
   const j = typeof row.toJSON === 'function' ? row.toJSON() : row;
   return {
     id: j.id,
+    source: 'local',
     subject: j.subject,
     description: j.description,
     startAt: j.startAt,
@@ -41,6 +42,11 @@ function formatMeeting(row, participants = []) {
     microsoftEventId: j.microsoftEventId,
     createdBy: j.createdBy,
     createdAt: j.createdAt,
+    isOrganizer: true,
+    canCancel: j.status === 'scheduled',
+    organizer: null,
+    responseStatus: null,
+    webLink: null,
     participants: participants.map((p) => {
       const pj = typeof p.toJSON === 'function' ? p.toJSON() : p;
       return {
@@ -60,6 +66,9 @@ async function getStatus(userId) {
   return {
     configured: cfg.configured,
     connected: Boolean(account),
+    tenantId: cfg.tenantId,
+    scopes: cfg.scopes,
+    adminConsentUrl: cfg.configured ? graph.buildAdminConsentUrl() : null,
     account: account
       ? {
           microsoftEmail: account.microsoftEmail,
@@ -75,6 +84,10 @@ async function getAuthUrl(userId) {
   const state = signOAuthState(userId);
   const url = graph.buildAuthorizeUrl(state);
   return { url };
+}
+
+async function getAdminConsentUrl() {
+  return { url: graph.buildAdminConsentUrl() };
 }
 
 async function handleOAuthCallback(code, state) {
@@ -95,7 +108,7 @@ async function disconnect(userId) {
   return { success: true };
 }
 
-async function listMeetings(userId, { from, to, status } = {}) {
+async function listMeetings(userId, { from, to, status, includeCalendar } = {}) {
   const where = { createdBy: userId };
   if (status) where.status = status;
   if (from || to) {
@@ -120,7 +133,32 @@ async function listMeetings(userId, { from, to, status } = {}) {
     if (!byMeeting.has(p.meetingId)) byMeeting.set(p.meetingId, []);
     byMeeting.get(p.meetingId).push(p);
   }
-  return meetings.map((m) => formatMeeting(m, byMeeting.get(m.id) || []));
+  const local = meetings.map((m) => formatMeeting(m, byMeeting.get(m.id) || []));
+
+  const wantCalendar =
+    includeCalendar === undefined ||
+    includeCalendar === true ||
+    includeCalendar === '1' ||
+    includeCalendar === 'true';
+
+  if (!wantCalendar) return local;
+
+  const account = await TeamsAccount.findOne({ where: { userId } });
+  if (!account) return local;
+
+  try {
+    const calendar = await graph.listCalendarOnlineMeetings(userId, { from, to });
+    const localMsIds = new Set(
+      local.map((m) => m.microsoftEventId).filter(Boolean)
+    );
+    const fromGraph = calendar.filter((m) => !localMsIds.has(m.microsoftEventId));
+    return [...local, ...fromGraph].sort(
+      (a, b) => new Date(a.startAt) - new Date(b.startAt)
+    );
+  } catch (e) {
+    console.error('Teams calendar sync:', e.message || e);
+    return local;
+  }
 }
 
 async function getMeeting(userId, meetingId) {
@@ -247,6 +285,7 @@ async function cancelMeeting(userId, meetingId) {
 module.exports = {
   getStatus,
   getAuthUrl,
+  getAdminConsentUrl,
   handleOAuthCallback,
   disconnect,
   listMeetings,

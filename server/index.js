@@ -257,6 +257,26 @@ io.on('connection', (socket) => {
   socket.on('error', (error) => {
     console.error(`Socket error for user ${socket.userId}:`, error);
   });
+
+  // Chat éphémère pendant une réunion Teams in-app
+  socket.on('teams:meeting:join', ({ roomId } = {}) => {
+    if (!roomId) return;
+    socket.join(`teams_meeting_${roomId}`);
+  });
+  socket.on('teams:meeting:leave', ({ roomId } = {}) => {
+    if (!roomId) return;
+    socket.leave(`teams_meeting_${roomId}`);
+  });
+  socket.on('teams:meeting:chat', ({ roomId, message, sender, senderId, at } = {}) => {
+    if (!roomId || !message) return;
+    io.to(`teams_meeting_${roomId}`).emit('teams:meeting:chat', {
+      roomId,
+      message: String(message).slice(0, 2000),
+      sender: sender || 'Participant',
+      senderId: senderId || socket.userId,
+      at: at || new Date().toISOString()
+    });
+  });
 });
 
 const PORT = process.env.PORT || 5002;

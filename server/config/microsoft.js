@@ -16,7 +16,7 @@ function getMicrosoftConfig() {
 
   const scopes = (
     process.env.MICROSOFT_GRAPH_SCOPES ||
-    'openid offline_access User.Read Calendars.ReadWrite OnlineMeetings.ReadWrite'
+    'openid offline_access User.Read Calendars.ReadWrite OnlineMeetings.ReadWrite Chat.ReadWrite'
   )
     .split(/[\s,]+/)
     .map((s) => s.trim())

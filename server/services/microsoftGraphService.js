@@ -429,6 +429,124 @@ async function listCalendarOnlineMeetings(userId, { from, to } = {}) {
     });
 }
 
+/**
+ * Résout une onlineMeeting Graph à partir du joinUrl Teams.
+ */
+async function findOnlineMeetingByJoinUrl(userId, joinUrl) {
+  const raw = String(joinUrl || '').trim();
+  if (!raw) return null;
+  const { accessToken } = await getValidAccessToken(userId);
+
+  // Filtre OData JoinWebUrl
+  const escaped = raw.replace(/'/g, "''");
+  const filter = `JoinWebUrl eq '${escaped}'`;
+  try {
+    const filtered = await graphGet(
+      accessToken,
+      `/me/onlineMeetings?$filter=${encodeURIComponent(filter)}`
+    );
+    const hit = Array.isArray(filtered?.value) ? filtered.value[0] : null;
+    if (hit) return hit;
+  } catch {
+    /* fallback */
+  }
+
+  // Dernier recours : parcourir les réunions récentes
+  try {
+    const list = await graphGet(accessToken, '/me/onlineMeetings?$top=50');
+    const items = Array.isArray(list?.value) ? list.value : [];
+    const norm = (u) => String(u || '').trim().replace(/\/$/, '').toLowerCase();
+    const target = norm(raw);
+    return (
+      items.find((m) => norm(m.joinWebUrl) === target || norm(m.joinUrl) === target) || null
+    );
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message;
+    throw new TeamsGraphError('MEETING_LOOKUP_FAILED', msg, e.response?.status || 502);
+  }
+}
+
+/**
+ * Liste les messages du chat de la réunion Teams (thread Graph).
+ */
+async function listMeetingChatMessages(userId, joinUrl, { top = 40 } = {}) {
+  const meeting = await findOnlineMeetingByJoinUrl(userId, joinUrl);
+  const threadId = meeting?.chatInfo?.threadId || meeting?.chatInfo?.threadID || null;
+  if (!threadId) {
+    return { threadId: null, messages: [], meetingId: meeting?.id || null };
+  }
+  const { accessToken } = await getValidAccessToken(userId);
+  try {
+    const data = await graphGet(
+      accessToken,
+      `/chats/${encodeURIComponent(threadId)}/messages?$top=${Math.min(Number(top) || 40, 50)}`
+    );
+    const rows = Array.isArray(data?.value) ? data.value : [];
+    const messages = rows
+      .filter((m) => m.messageType === 'message' && m.body?.content)
+      .map((m) => ({
+        id: m.id,
+        text: String(m.body.content || '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+        sender:
+          m.from?.user?.displayName ||
+          m.from?.application?.displayName ||
+          'Participant',
+        senderId: m.from?.user?.id || m.from?.application?.id || null,
+        at: m.createdDateTime,
+        mine: false
+      }))
+      .filter((m) => m.text)
+      .reverse();
+    return { threadId, messages, meetingId: meeting.id };
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message;
+    const status = e.response?.status || 502;
+    throw new TeamsGraphError('CHAT_LIST_FAILED', msg, status);
+  }
+}
+
+/**
+ * Envoie un message dans le chat de la réunion Teams.
+ */
+async function sendMeetingChatMessage(userId, joinUrl, content) {
+  const text = String(content || '').trim();
+  if (!text) {
+    throw new TeamsGraphError('VALIDATION', 'Message vide.', 400);
+  }
+  const meeting = await findOnlineMeetingByJoinUrl(userId, joinUrl);
+  const threadId = meeting?.chatInfo?.threadId || meeting?.chatInfo?.threadID || null;
+  if (!threadId) {
+    throw new TeamsGraphError(
+      'CHAT_THREAD_MISSING',
+      'Le fil de discussion Teams n’est pas encore disponible pour cette réunion (ouvrez la réunion une fois, ou accordez Chat.ReadWrite).',
+      404
+    );
+  }
+  const { accessToken } = await getValidAccessToken(userId);
+  try {
+    const created = await graphPost(accessToken, `/chats/${encodeURIComponent(threadId)}/messages`, {
+      body: {
+        contentType: 'text',
+        content: text.slice(0, 4000)
+      }
+    });
+    return {
+      id: created.id,
+      text,
+      sender: created.from?.user?.displayName || null,
+      senderId: created.from?.user?.id || null,
+      at: created.createdDateTime || new Date().toISOString(),
+      threadId
+    };
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message;
+    throw new TeamsGraphError('CHAT_SEND_FAILED', msg, e.response?.status || 502);
+  }
+}
+
 module.exports = {
   TeamsGraphError,
   buildAuthorizeUrl,
@@ -440,5 +558,8 @@ module.exports = {
   createCalendarMeeting,
   cancelCalendarEvent,
   listCalendarOnlineMeetings,
+  findOnlineMeetingByJoinUrl,
+  listMeetingChatMessages,
+  sendMeetingChatMessage,
   graphGet
 };

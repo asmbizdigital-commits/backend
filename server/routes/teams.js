@@ -239,4 +239,51 @@ router.delete('/meetings/:id', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * Chat de la réunion Teams (Graph) — messages visibles aussi dans l’app Teams.
+ */
+router.get('/meeting-chat', authenticateToken, async (req, res) => {
+  try {
+    const joinUrl = String(req.query.joinUrl || '').trim();
+    if (!joinUrl) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION',
+        message: 'joinUrl requis.'
+      });
+    }
+    const graph = require('../services/microsoftGraphService');
+    const data = await graph.listMeetingChatMessages(req.user.id, joinUrl, {
+      top: parseInt(req.query.top, 10) || 40
+    });
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
+router.post(
+  '/meeting-chat',
+  authenticateToken,
+  express.json({ limit: '64kb' }),
+  async (req, res) => {
+    try {
+      const joinUrl = String(req.body?.joinUrl || '').trim();
+      const message = String(req.body?.message || '').trim();
+      if (!joinUrl || !message) {
+        return res.status(400).json({
+          success: false,
+          code: 'VALIDATION',
+          message: 'joinUrl et message requis.'
+        });
+      }
+      const graph = require('../services/microsoftGraphService');
+      const data = await graph.sendMeetingChatMessage(req.user.id, joinUrl, message);
+      return res.status(201).json({ success: true, data });
+    } catch (e) {
+      return sendTeamsError(res, e);
+    }
+  }
+);
+
 module.exports = router;

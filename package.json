@@ -38,7 +38,8 @@
     "migrate:user-role-responsable-zone-chef-executif": "node scripts/run-migrate-user-role-responsable-zone-chef-executif.js",
     "migrate:connaissements-etd": "node scripts/run-migrate-connaissements-etd.js",
     "migrate:teams": "node scripts/run-migrate-teams-integration.js",
-    "migrate:teams-dossiers": "node scripts/run-migrate-teams-meeting-dossiers.js"
+    "migrate:teams-dossiers": "node scripts/run-migrate-teams-meeting-dossiers.js",
+    "migrate:teams-tasks": "node scripts/run-migrate-teams-meeting-tasks.js"
   },
   "keywords": [
     "hotel",

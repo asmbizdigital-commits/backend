@@ -7,9 +7,12 @@ const TeamsAccount = require('../models/TeamsAccount');
 const TeamsMeeting = require('../models/TeamsMeeting');
 const TeamsMeetingParticipant = require('../models/TeamsMeetingParticipant');
 const TeamsMeetingDossier = require('../models/TeamsMeetingDossier');
+const TeamsMeetingTask = require('../models/TeamsMeetingTask');
 const Connaissement = require('../models/Connaissement');
+const TaskPro = require('../models/TaskPro');
 const { getMicrosoftConfig } = require('../config/microsoft');
 const graph = require('./microsoftGraphService');
+const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
 
 function signOAuthState(userId) {
   return jwt.sign(
@@ -44,7 +47,7 @@ function formatDossierLink(row, conn = null) {
   };
 }
 
-function formatMeeting(row, participants = [], dossiers = []) {
+function formatMeeting(row, participants = [], dossiers = [], tasks = []) {
   const j = typeof row.toJSON === 'function' ? row.toJSON() : row;
   return {
     id: j.id,
@@ -76,7 +79,8 @@ function formatMeeting(row, participants = [], dossiers = []) {
         userId: pj.userId
       };
     }),
-    dossiers: Array.isArray(dossiers) ? dossiers : []
+    dossiers: Array.isArray(dossiers) ? dossiers : [],
+    tasks: Array.isArray(tasks) ? tasks : []
   };
 }
 
@@ -113,6 +117,64 @@ async function loadDossiersForMeetings(meetingIds) {
   for (const link of links) {
     if (!byMeeting.has(link.meetingId)) byMeeting.set(link.meetingId, []);
     byMeeting.get(link.meetingId).push(formatDossierLink(link, connById.get(link.connaissementId)));
+  }
+  return byMeeting;
+}
+
+function formatTaskLink(link, task = null) {
+  const l = typeof link.toJSON === 'function' ? link.toJSON() : link;
+  const t = task && (typeof task.toJSON === 'function' ? task.toJSON() : task);
+  return {
+    id: t?.id || l.taskProId,
+    taskProId: l.taskProId,
+    meetingId: l.meetingId || null,
+    joinUrl: l.joinUrl || null,
+    numero_tache: t?.numero_tache || null,
+    titre: t?.titre || null,
+    priorite: t?.priorite || null,
+    statut: t?.statut || null,
+    colonne_kanban: t?.colonne_kanban || null,
+    assignee_id: t?.assignee_id || null,
+    date_echeance: t?.date_echeance || null,
+    createdAt: l.createdAt || l.created_at || null
+  };
+}
+
+async function loadTasksForMeetings(meetingIds) {
+  const byMeeting = new Map();
+  if (!meetingIds.length) return byMeeting;
+  let links = [];
+  try {
+    links = await TeamsMeetingTask.findAll({
+      where: { meetingId: { [Op.in]: meetingIds } }
+    });
+  } catch (e) {
+    console.warn('Teams tasks load skipped:', e.message);
+    return byMeeting;
+  }
+  const taskIds = [...new Set(links.map((l) => l.taskProId).filter(Boolean))];
+  const tasks =
+    taskIds.length === 0
+      ? []
+      : await TaskPro.findAll({
+          where: { id: { [Op.in]: taskIds } },
+          attributes: [
+            'id',
+            'numero_tache',
+            'titre',
+            'priorite',
+            'statut',
+            'colonne_kanban',
+            'assignee_id',
+            'date_echeance'
+          ]
+        });
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  for (const link of links) {
+    if (!byMeeting.has(link.meetingId)) byMeeting.set(link.meetingId, []);
+    byMeeting
+      .get(link.meetingId)
+      .push(formatTaskLink(link, taskById.get(link.taskProId)));
   }
   return byMeeting;
 }
@@ -245,8 +307,14 @@ async function listMeetings(userId, { from, to, status, includeCalendar } = {}) 
     byMeeting.get(p.meetingId).push(p);
   }
   const dossiersByMeeting = await loadDossiersForMeetings(ids);
+  const tasksByMeeting = await loadTasksForMeetings(ids);
   const local = meetings.map((m) =>
-    formatMeeting(m, byMeeting.get(m.id) || [], dossiersByMeeting.get(m.id) || [])
+    formatMeeting(
+      m,
+      byMeeting.get(m.id) || [],
+      dossiersByMeeting.get(m.id) || [],
+      tasksByMeeting.get(m.id) || []
+    )
   );
 
   const wantCalendar =
@@ -284,10 +352,12 @@ async function getMeeting(userId, meetingId) {
     where: { meetingId: meeting.id }
   });
   const dossiersByMeeting = await loadDossiersForMeetings([meeting.id]);
+  const tasksByMeeting = await loadTasksForMeetings([meeting.id]);
   return formatMeeting(
     meeting,
     participants,
-    dossiersByMeeting.get(meeting.id) || []
+    dossiersByMeeting.get(meeting.id) || [],
+    tasksByMeeting.get(meeting.id) || []
   );
 }
 
@@ -385,7 +455,7 @@ async function createMeeting(userId, body) {
   }
 
   const dossiers = await attachDossiersToMeeting(meeting.id, dossierIds);
-  return formatMeeting(meeting, partRows, dossiers);
+  return formatMeeting(meeting, partRows, dossiers, []);
 }
 
 async function cancelMeeting(userId, meetingId) {
@@ -412,10 +482,206 @@ async function cancelMeeting(userId, meetingId) {
     where: { meetingId: meeting.id }
   });
   const dossiersByMeeting = await loadDossiersForMeetings([meeting.id]);
+  const tasksByMeeting = await loadTasksForMeetings([meeting.id]);
   return formatMeeting(
     meeting,
     participants,
-    dossiersByMeeting.get(meeting.id) || []
+    dossiersByMeeting.get(meeting.id) || [],
+    tasksByMeeting.get(meeting.id) || []
+  );
+}
+
+async function resolveMeetingContext({ meetingId, joinUrl }) {
+  let mid = meetingId ? parseInt(String(meetingId), 10) : null;
+  if (!Number.isFinite(mid) || mid < 1) mid = null;
+  const url = String(joinUrl || '').trim() || null;
+
+  if (!mid && url) {
+    const found = await TeamsMeeting.findOne({
+      where: { joinUrl: url },
+      order: [['id', 'DESC']]
+    });
+    if (found) mid = found.id;
+  }
+
+  if (!mid && !url) {
+    throw new graph.TeamsGraphError(
+      'VALIDATION',
+      'meetingId ou joinUrl requis pour lier la tâche.',
+      400
+    );
+  }
+
+  return { meetingId: mid, joinUrl: url };
+}
+
+async function listMeetingTasks(userId, { meetingId, joinUrl } = {}) {
+  const ctx = await resolveMeetingContext({ meetingId, joinUrl });
+  const or = [];
+  if (ctx.meetingId) or.push({ meetingId: ctx.meetingId });
+  if (ctx.joinUrl) or.push({ joinUrl: ctx.joinUrl });
+
+  let links = [];
+  try {
+    links = await TeamsMeetingTask.findAll({
+      where: { [Op.or]: or },
+      order: [['created_at', 'DESC']],
+      limit: 100
+    });
+  } catch (e) {
+    console.warn('listMeetingTasks:', e.message);
+    return [];
+  }
+
+  // Dédupliquer par task_pro_id
+  const seen = new Set();
+  const unique = [];
+  for (const link of links) {
+    if (seen.has(link.taskProId)) continue;
+    seen.add(link.taskProId);
+    unique.push(link);
+  }
+
+  const taskIds = unique.map((l) => l.taskProId);
+  const tasks =
+    taskIds.length === 0
+      ? []
+      : await TaskPro.findAll({
+          where: { id: { [Op.in]: taskIds }, supprime: false },
+          attributes: [
+            'id',
+            'numero_tache',
+            'titre',
+            'priorite',
+            'statut',
+            'colonne_kanban',
+            'assignee_id',
+            'date_echeance',
+            'description',
+            'projet_nom'
+          ]
+        });
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return unique
+    .map((l) => formatTaskLink(l, byId.get(l.taskProId)))
+    .filter((t) => t.titre || t.numero_tache);
+}
+
+async function createMeetingTask(userId, body = {}) {
+  const titre = String(body.titre || '').trim();
+  if (titre.length < 3) {
+    throw new graph.TeamsGraphError(
+      'VALIDATION',
+      'Titre invalide (minimum 3 caractères).',
+      400
+    );
+  }
+
+  const ctx = await resolveMeetingContext({
+    meetingId: body.meetingId || body.meeting_id,
+    joinUrl: body.joinUrl || body.join_url
+  });
+
+  let meetingSubject = String(body.meetingSubject || body.subject || '').trim();
+  if (!meetingSubject && ctx.meetingId) {
+    const m = await TeamsMeeting.findByPk(ctx.meetingId);
+    meetingSubject = m?.subject || '';
+  }
+  if (!meetingSubject) meetingSubject = 'Réunion Microsoft Teams';
+
+  const linkBits = [
+    `Réunion Teams: ${meetingSubject}`,
+    ctx.meetingId ? `Meeting ID Synaptasys: ${ctx.meetingId}` : null,
+    ctx.joinUrl ? `Lien: ${ctx.joinUrl}` : null
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const userDesc = String(body.description || '').trim();
+  const description = [userDesc, linkBits].filter(Boolean).join('\n\n') || null;
+
+  const PRIORITIES = new Set(['Basse', 'Normale', 'Haute', 'Urgente']);
+  const TYPES = new Set([
+    'Tâche',
+    'Bug',
+    'Amélioration',
+    'Fonctionnalité',
+    'Documentation',
+    'Maintenance',
+    'Autre'
+  ]);
+  const priorite = PRIORITIES.has(body.priorite) ? body.priorite : 'Normale';
+  const type_tache = TYPES.has(body.type_tache) ? body.type_tache : 'Tâche';
+  const assignee_id = body.assignee_id ? parseInt(String(body.assignee_id), 10) : null;
+  const date_echeance = body.date_echeance ? new Date(body.date_echeance) : null;
+
+  const labels = [
+    { nom: 'Teams', couleur: '#6264A7' },
+    ...(ctx.meetingId ? [{ nom: `meeting:${ctx.meetingId}`, couleur: '#3b82f6' }] : [])
+  ];
+
+  const task = await createTaskProWithUniqueNumero({
+    titre,
+    description,
+    type_tache,
+    statut: 'À faire',
+    colonne_kanban: 'À faire',
+    position: 0,
+    priorite,
+    createur_id: userId,
+    assignee_id: Number.isFinite(assignee_id) && assignee_id > 0 ? assignee_id : null,
+    projet_nom: `Teams — ${meetingSubject}`.slice(0, 255),
+    date_echeance:
+      date_echeance && !Number.isNaN(date_echeance.getTime()) ? date_echeance : null,
+    labels,
+    visibilite: 'Public',
+    confidentialite: 'Normale'
+  });
+
+  try {
+    if (ctx.meetingId) {
+      const [link] = await TeamsMeetingTask.findOrCreate({
+        where: { meetingId: ctx.meetingId, taskProId: task.id },
+        defaults: {
+          meetingId: ctx.meetingId,
+          joinUrl: ctx.joinUrl || null,
+          taskProId: task.id,
+          createdBy: userId
+        }
+      });
+      if (ctx.joinUrl && link.joinUrl !== ctx.joinUrl) {
+        await link.update({ joinUrl: ctx.joinUrl });
+      }
+    } else {
+      const existing = await TeamsMeetingTask.findOne({
+        where: { taskProId: task.id, joinUrl: ctx.joinUrl }
+      });
+      if (!existing) {
+        await TeamsMeetingTask.create({
+          meetingId: null,
+          joinUrl: ctx.joinUrl,
+          taskProId: task.id,
+          createdBy: userId
+        });
+      }
+    }
+  } catch (e) {
+    console.error('link meeting task:', e.message);
+    throw new graph.TeamsGraphError(
+      'TEAMS_TASK_LINK_FAILED',
+      `Tâche créée (#${task.id}) mais liaison réunion impossible: ${e.message}`,
+      500
+    );
+  }
+
+  return formatTaskLink(
+    {
+      meetingId: ctx.meetingId,
+      joinUrl: ctx.joinUrl,
+      taskProId: task.id,
+      createdAt: new Date()
+    },
+    task
   );
 }
 
@@ -565,6 +831,8 @@ module.exports = {
   cancelMeeting,
   listMeetingDossiers,
   addMeetingDossiers,
+  listMeetingTasks,
+  createMeetingTask,
   searchDossiers,
   getDossierSummary,
   formatMeeting

@@ -282,6 +282,67 @@ router.post(
   }
 );
 
+router.get('/meetings/:id/tasks', authenticateToken, async (req, res) => {
+  try {
+    const data = await teamsService.listMeetingTasks(req.user.id, {
+      meetingId: parseInt(req.params.id, 10),
+      joinUrl: req.query.joinUrl
+    });
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
+router.post(
+  '/meetings/:id/tasks',
+  authenticateToken,
+  express.json({ limit: '256kb' }),
+  async (req, res) => {
+    try {
+      const data = await teamsService.createMeetingTask(req.user.id, {
+        ...req.body,
+        meetingId: parseInt(req.params.id, 10)
+      });
+      return res.status(201).json({ success: true, data });
+    } catch (e) {
+      return sendTeamsError(res, e);
+    }
+  }
+);
+
+/** Liste / crée des tâches liées via joinUrl (réunions calendrier sans id local). */
+router.get('/meeting-tasks', authenticateToken, async (req, res) => {
+  try {
+    const joinUrl = String(req.query.joinUrl || '').trim();
+    if (!joinUrl) {
+      return res.status(400).json({
+        success: false,
+        code: 'VALIDATION',
+        message: 'joinUrl requis.'
+      });
+    }
+    const data = await teamsService.listMeetingTasks(req.user.id, { joinUrl });
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
+router.post(
+  '/meeting-tasks',
+  authenticateToken,
+  express.json({ limit: '256kb' }),
+  async (req, res) => {
+    try {
+      const data = await teamsService.createMeetingTask(req.user.id, req.body);
+      return res.status(201).json({ success: true, data });
+    } catch (e) {
+      return sendTeamsError(res, e);
+    }
+  }
+);
+
 router.delete('/meetings/:id', authenticateToken, async (req, res) => {
   try {
     const data = await teamsService.cancelMeeting(req.user.id, parseInt(req.params.id, 10));

@@ -199,6 +199,8 @@ router.post(
     body('description').optional().isString().isLength({ max: 5000 }),
     body('participants').optional().isArray({ max: 50 }),
     body('participants.*.email').optional().isEmail(),
+    body('dossiers').optional().isArray({ max: 30 }),
+    body('dossierIds').optional().isArray({ max: 30 }),
     body('referenceType').optional().isString().isLength({ max: 100 }),
     body('referenceId').optional().isInt({ min: 1 })
   ],
@@ -221,6 +223,26 @@ router.post(
   }
 );
 
+router.get('/dossiers/search', authenticateToken, async (req, res) => {
+  try {
+    const data = await teamsService.searchDossiers(req.query.q, {
+      limit: req.query.limit
+    });
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
+router.get('/dossiers/:id/summary', authenticateToken, async (req, res) => {
+  try {
+    const data = await teamsService.getDossierSummary(req.params.id);
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
 router.get('/meetings/:id', authenticateToken, async (req, res) => {
   try {
     const data = await teamsService.getMeeting(req.user.id, parseInt(req.params.id, 10));
@@ -229,6 +251,36 @@ router.get('/meetings/:id', authenticateToken, async (req, res) => {
     return sendTeamsError(res, e);
   }
 });
+
+router.get('/meetings/:id/dossiers', authenticateToken, async (req, res) => {
+  try {
+    const data = await teamsService.listMeetingDossiers(
+      req.user.id,
+      parseInt(req.params.id, 10)
+    );
+    return res.json({ success: true, data });
+  } catch (e) {
+    return sendTeamsError(res, e);
+  }
+});
+
+router.post(
+  '/meetings/:id/dossiers',
+  authenticateToken,
+  express.json({ limit: '64kb' }),
+  async (req, res) => {
+    try {
+      const data = await teamsService.addMeetingDossiers(
+        req.user.id,
+        parseInt(req.params.id, 10),
+        req.body
+      );
+      return res.status(201).json({ success: true, data });
+    } catch (e) {
+      return sendTeamsError(res, e);
+    }
+  }
+);
 
 router.delete('/meetings/:id', authenticateToken, async (req, res) => {
   try {

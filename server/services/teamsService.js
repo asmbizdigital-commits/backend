@@ -6,6 +6,8 @@ const { Op } = require('sequelize');
 const TeamsAccount = require('../models/TeamsAccount');
 const TeamsMeeting = require('../models/TeamsMeeting');
 const TeamsMeetingParticipant = require('../models/TeamsMeetingParticipant');
+const TeamsMeetingDossier = require('../models/TeamsMeetingDossier');
+const Connaissement = require('../models/Connaissement');
 const { getMicrosoftConfig } = require('../config/microsoft');
 const graph = require('./microsoftGraphService');
 
@@ -25,7 +27,24 @@ function verifyOAuthState(state) {
   return decoded.userId;
 }
 
-function formatMeeting(row, participants = []) {
+function formatDossierLink(row, conn = null) {
+  const j = typeof row.toJSON === 'function' ? row.toJSON() : row;
+  const c = conn && (typeof conn.toJSON === 'function' ? conn.toJSON() : conn);
+  const bl = c?.blNumber || j.label || null;
+  return {
+    id: j.connaissementId,
+    connaissementId: j.connaissementId,
+    label: bl || j.label || `Dossier #${j.connaissementId}`,
+    blNumber: bl || null,
+    clientNom: c?.clientNom || null,
+    vesselName: c?.vesselName || null,
+    portOfLoading: c?.portOfLoading || null,
+    portOfDischarge: c?.portOfDischarge || null,
+    numeroDossier: c?.numeroDossier || null
+  };
+}
+
+function formatMeeting(row, participants = [], dossiers = []) {
   const j = typeof row.toJSON === 'function' ? row.toJSON() : row;
   return {
     id: j.id,
@@ -56,8 +75,98 @@ function formatMeeting(row, participants = []) {
         participantType: pj.participantType,
         userId: pj.userId
       };
-    })
+    }),
+    dossiers: Array.isArray(dossiers) ? dossiers : []
   };
+}
+
+async function loadDossiersForMeetings(meetingIds) {
+  const byMeeting = new Map();
+  if (!meetingIds.length) return byMeeting;
+  let links = [];
+  try {
+    links = await TeamsMeetingDossier.findAll({
+      where: { meetingId: { [Op.in]: meetingIds } }
+    });
+  } catch (e) {
+    // Table pas encore migrée
+    console.warn('Teams dossiers load skipped:', e.message);
+    return byMeeting;
+  }
+  const connIds = [...new Set(links.map((l) => l.connaissementId).filter(Boolean))];
+  const conns =
+    connIds.length === 0
+      ? []
+      : await Connaissement.findAll({
+          where: { id: { [Op.in]: connIds } },
+          attributes: [
+            'id',
+            'blNumber',
+            'clientNom',
+            'vesselName',
+            'portOfLoading',
+            'portOfDischarge',
+            'numeroDossier'
+          ]
+        });
+  const connById = new Map(conns.map((c) => [c.id, c]));
+  for (const link of links) {
+    if (!byMeeting.has(link.meetingId)) byMeeting.set(link.meetingId, []);
+    byMeeting.get(link.meetingId).push(formatDossierLink(link, connById.get(link.connaissementId)));
+  }
+  return byMeeting;
+}
+
+function parseDossierIds(body) {
+  const raw = body?.dossiers ?? body?.dossierIds ?? body?.dossier_ids ?? [];
+  if (!Array.isArray(raw)) return [];
+  const ids = [];
+  for (const item of raw) {
+    const id =
+      typeof item === 'object' && item != null
+        ? item.id ?? item.connaissementId ?? item.connaissement_id ?? item.value
+        : item;
+    const n = parseInt(String(id), 10);
+    if (Number.isFinite(n) && n > 0) ids.push(n);
+  }
+  return [...new Set(ids)].slice(0, 30);
+}
+
+async function attachDossiersToMeeting(meetingId, dossierIds) {
+  if (!dossierIds.length) return [];
+  const conns = await Connaissement.findAll({
+    where: { id: { [Op.in]: dossierIds } },
+    attributes: [
+      'id',
+      'blNumber',
+      'clientNom',
+      'vesselName',
+      'portOfLoading',
+      'portOfDischarge',
+      'numeroDossier'
+    ]
+  });
+  const found = new Map(conns.map((c) => [c.id, c]));
+  const out = [];
+  for (const id of dossierIds) {
+    const c = found.get(id);
+    if (!c) continue;
+    const label = String(c.blNumber || `Dossier #${id}`).slice(0, 255);
+    let row;
+    try {
+      const [created] = await TeamsMeetingDossier.findOrCreate({
+        where: { meetingId, connaissementId: id },
+        defaults: { meetingId, connaissementId: id, label }
+      });
+      row = created;
+      if (row.label !== label) await row.update({ label });
+    } catch (e) {
+      console.warn('attachDossiersToMeeting:', e.message);
+      continue;
+    }
+    out.push(formatDossierLink(row, c));
+  }
+  return out;
 }
 
 async function getStatus(userId) {
@@ -135,7 +244,10 @@ async function listMeetings(userId, { from, to, status, includeCalendar } = {}) 
     if (!byMeeting.has(p.meetingId)) byMeeting.set(p.meetingId, []);
     byMeeting.get(p.meetingId).push(p);
   }
-  const local = meetings.map((m) => formatMeeting(m, byMeeting.get(m.id) || []));
+  const dossiersByMeeting = await loadDossiersForMeetings(ids);
+  const local = meetings.map((m) =>
+    formatMeeting(m, byMeeting.get(m.id) || [], dossiersByMeeting.get(m.id) || [])
+  );
 
   const wantCalendar =
     includeCalendar === undefined ||
@@ -150,9 +262,7 @@ async function listMeetings(userId, { from, to, status, includeCalendar } = {}) 
 
   try {
     const calendar = await graph.listCalendarOnlineMeetings(userId, { from, to });
-    const localMsIds = new Set(
-      local.map((m) => m.microsoftEventId).filter(Boolean)
-    );
+    const localMsIds = new Set(local.map((m) => m.microsoftEventId).filter(Boolean));
     const fromGraph = calendar.filter((m) => !localMsIds.has(m.microsoftEventId));
     return [...local, ...fromGraph].sort(
       (a, b) => new Date(a.startAt) - new Date(b.startAt)
@@ -173,7 +283,12 @@ async function getMeeting(userId, meetingId) {
   const participants = await TeamsMeetingParticipant.findAll({
     where: { meetingId: meeting.id }
   });
-  return formatMeeting(meeting, participants);
+  const dossiersByMeeting = await loadDossiersForMeetings([meeting.id]);
+  return formatMeeting(
+    meeting,
+    participants,
+    dossiersByMeeting.get(meeting.id) || []
+  );
 }
 
 async function createMeeting(userId, body) {
@@ -194,8 +309,23 @@ async function createMeeting(userId, body) {
 
   const timezone = body.timezone || 'Africa/Kinshasa';
   const participants = Array.isArray(body.participants) ? body.participants : [];
+  const dossierIds = parseDossierIds(body);
 
-  // Format Graph local datetime without Z (Graph expects "floating" + timeZone)
+  let dossierNote = '';
+  if (dossierIds.length) {
+    const preview = await Connaissement.findAll({
+      where: { id: { [Op.in]: dossierIds } },
+      attributes: ['id', 'blNumber']
+    });
+    const labels = preview.map((c) => c.blNumber || `#${c.id}`);
+    if (labels.length) {
+      dossierNote = `\n\nDossiers liés (ASM-PADS):\n- ${labels.join('\n- ')}`;
+    }
+  }
+
+  const baseDescription = String(body.description || '');
+  const descriptionForGraph = `${baseDescription}${dossierNote}`.trim();
+
   const toGraphLocal = (d) => {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -205,14 +335,13 @@ async function createMeeting(userId, body) {
   try {
     event = await graph.createCalendarMeeting(userId, {
       subject,
-      description: body.description || '',
+      description: descriptionForGraph,
       startAt: toGraphLocal(start),
       endAt: toGraphLocal(end),
       timezone,
       participants
     });
   } catch (e) {
-    // Si Microsoft non connecté / non configuré : on peut encore enregistrer localement sans joinUrl
     if (e.code === 'TEAMS_NOT_CONFIGURED' || e.code === 'TEAMS_NOT_CONNECTED') {
       throw e;
     }
@@ -230,7 +359,7 @@ async function createMeeting(userId, body) {
     microsoftEventId: event?.id || null,
     microsoftMeetingId: event?.onlineMeeting?.id || null,
     subject,
-    description: body.description || null,
+    description: baseDescription || null,
     startAt: start,
     endAt: end,
     timezone,
@@ -255,7 +384,8 @@ async function createMeeting(userId, body) {
     );
   }
 
-  return formatMeeting(meeting, partRows);
+  const dossiers = await attachDossiersToMeeting(meeting.id, dossierIds);
+  return formatMeeting(meeting, partRows, dossiers);
 }
 
 async function cancelMeeting(userId, meetingId) {
@@ -281,7 +411,146 @@ async function cancelMeeting(userId, meetingId) {
   const participants = await TeamsMeetingParticipant.findAll({
     where: { meetingId: meeting.id }
   });
-  return formatMeeting(meeting, participants);
+  const dossiersByMeeting = await loadDossiersForMeetings([meeting.id]);
+  return formatMeeting(
+    meeting,
+    participants,
+    dossiersByMeeting.get(meeting.id) || []
+  );
+}
+
+async function listMeetingDossiers(userId, meetingId) {
+  const meeting = await TeamsMeeting.findOne({
+    where: { id: meetingId, createdBy: userId }
+  });
+  if (!meeting) {
+    throw new graph.TeamsGraphError('TEAMS_MEETING_NOT_FOUND', 'Réunion introuvable.', 404);
+  }
+  const dossiersByMeeting = await loadDossiersForMeetings([meeting.id]);
+  return dossiersByMeeting.get(meeting.id) || [];
+}
+
+async function addMeetingDossiers(userId, meetingId, body) {
+  const meeting = await TeamsMeeting.findOne({
+    where: { id: meetingId, createdBy: userId }
+  });
+  if (!meeting) {
+    throw new graph.TeamsGraphError('TEAMS_MEETING_NOT_FOUND', 'Réunion introuvable.', 404);
+  }
+  const ids = parseDossierIds(body);
+  if (!ids.length) {
+    throw new graph.TeamsGraphError('VALIDATION', 'Aucun dossier valide.', 400);
+  }
+  await attachDossiersToMeeting(meeting.id, ids);
+  return listMeetingDossiers(userId, meetingId);
+}
+
+async function searchDossiers(q, { limit = 20 } = {}) {
+  const term = String(q || '').trim();
+  const lim = Math.min(50, Math.max(1, parseInt(String(limit), 10) || 20));
+  const where = {};
+  if (term) {
+    const like = `%${term.replace(/[%_]/g, '')}%`;
+    where[Op.or] = [
+      { blNumber: { [Op.like]: like } },
+      { numeroDossier: { [Op.like]: like } },
+      { clientNom: { [Op.like]: like } },
+      { vesselName: { [Op.like]: like } },
+      { consigneeName: { [Op.like]: like } },
+      { shipperName: { [Op.like]: like } }
+    ];
+    const asId = parseInt(term, 10);
+    if (Number.isFinite(asId) && asId > 0) {
+      where[Op.or].push({ id: asId });
+    }
+  }
+  const rows = await Connaissement.findAll({
+    where,
+    attributes: [
+      'id',
+      'blNumber',
+      'clientNom',
+      'vesselName',
+      'voyageNumber',
+      'portOfLoading',
+      'portOfDischarge',
+      'numeroDossier',
+      'carrier'
+    ],
+    order: [['updated_at', 'DESC']],
+    limit: lim
+  });
+  return rows.map((r) => {
+    const j = r.toJSON();
+    return {
+      id: j.id,
+      blNumber: j.blNumber,
+      label: j.blNumber,
+      clientNom: j.clientNom,
+      vesselName: j.vesselName,
+      voyageNumber: j.voyageNumber,
+      portOfLoading: j.portOfLoading,
+      portOfDischarge: j.portOfDischarge,
+      numeroDossier: j.numeroDossier,
+      carrier: j.carrier
+    };
+  });
+}
+
+async function getDossierSummary(connaissementId) {
+  const id = parseInt(String(connaissementId), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new graph.TeamsGraphError('VALIDATION', 'Identifiant dossier invalide.', 400);
+  }
+  const row = await Connaissement.findByPk(id, {
+    attributes: [
+      'id',
+      'blNumber',
+      'carrier',
+      'clientNom',
+      'shipperName',
+      'consigneeName',
+      'vesselName',
+      'voyageNumber',
+      'portOfLoading',
+      'portOfDischarge',
+      'placeOfDelivery',
+      'eta',
+      'etd',
+      'numeroDossier',
+      'numeroFeri',
+      'numeroFxi',
+      'totalWeightKg',
+      'nombreColis',
+      'modeTransport'
+    ]
+  });
+  if (!row) {
+    throw new graph.TeamsGraphError('DOSSIER_NOT_FOUND', 'Dossier introuvable.', 404);
+  }
+  const j = row.toJSON();
+  return {
+    id: j.id,
+    blNumber: j.blNumber,
+    label: j.blNumber,
+    carrier: j.carrier,
+    clientNom: j.clientNom,
+    shipperName: j.shipperName,
+    consigneeName: j.consigneeName,
+    vesselName: j.vesselName,
+    voyageNumber: j.voyageNumber,
+    portOfLoading: j.portOfLoading,
+    portOfDischarge: j.portOfDischarge,
+    placeOfDelivery: j.placeOfDelivery,
+    eta: j.eta,
+    etd: j.etd,
+    numeroDossier: j.numeroDossier,
+    numeroFeri: j.numeroFeri,
+    numeroFxi: j.numeroFxi,
+    totalWeightKg: j.totalWeightKg,
+    nombreColis: j.nombreColis,
+    modeTransport: j.modeTransport
+  };
 }
 
 module.exports = {
@@ -294,5 +563,9 @@ module.exports = {
   getMeeting,
   createMeeting,
   cancelMeeting,
+  listMeetingDossiers,
+  addMeetingDossiers,
+  searchDossiers,
+  getDossierSummary,
   formatMeeting
 };

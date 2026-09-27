@@ -37,7 +37,8 @@
     "migrate:role-verificateur-sygrem": "node scripts/run-migrate-role-verificateur-sygrem.js",
     "migrate:user-role-responsable-zone-chef-executif": "node scripts/run-migrate-user-role-responsable-zone-chef-executif.js",
     "migrate:connaissements-etd": "node scripts/run-migrate-connaissements-etd.js",
-    "migrate:teams": "node scripts/run-migrate-teams-integration.js"
+    "migrate:teams": "node scripts/run-migrate-teams-integration.js",
+    "migrate:teams-dossiers": "node scripts/run-migrate-teams-meeting-dossiers.js"
   },
   "keywords": [
     "hotel",

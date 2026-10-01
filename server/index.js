@@ -152,6 +152,7 @@ const dispatchesHousekeepingRoutes = require('./routes/dispatches-housekeeping')
 const pointagesRoutes = require('./routes/pointages');
 const presencesDashboardRoutes = require('./routes/presences-dashboard');
 const reportsRoutes = require('./routes/reports');
+const modularReportingRoutes = require('./routes/modularReporting');
 const suivisMaintenancesRoutes = require('./routes/suivis-maintenances');
 const menusRoutes = require('./routes/menus');
 const messagesRoutes = require('./routes/messages');
@@ -492,6 +493,7 @@ app.use('/api/dispatches-housekeeping', dispatchesHousekeepingRoutes);
 app.use('/api/pointages', pointagesRoutes);
 app.use('/api/presences-dashboard', presencesDashboardRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/modular-reporting', modularReportingRoutes);
 app.use('/api/suivis-maintenances', suivisMaintenancesRoutes);
 app.use('/api/menus', menusRoutes);
 app.use('/api/messages', messagesRoutes);

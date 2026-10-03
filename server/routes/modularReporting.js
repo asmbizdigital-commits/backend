@@ -1,15 +1,41 @@
 /**
- * API Reporting modulaire V1 — Patron / Administrateur uniquement.
+ * API Reporting modulaire — Patron / Administrateur / Direction des Opérations (KPI).
  */
 const express = require('express');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 const reporting = require('../services/modularReportingService');
 const controleurKpi = require('../services/controleurKpiService');
+const {
+  canAccessReportingAdministrateur,
+  isRoleAdministrateur
+} = require('../utils/userRoles');
 
 const router = express.Router();
 
+function requireModularReportingAccess(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentification requise'
+    });
+  }
+  const role = req.user.role;
+  if (
+    isRoleAdministrateur(role) ||
+    canAccessReportingAdministrateur(role) ||
+    role === 'Administrateur' ||
+    role === 'Patron'
+  ) {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'Permissions insuffisantes pour le reporting modulaire.'
+  });
+}
+
 router.use(authenticateToken);
-router.use(requireRole(['Patron', 'Administrateur']));
+router.use(requireModularReportingAccess);
 
 router.get('/datasets', (req, res) => {
   return res.json({ success: true, data: reporting.listDatasets() });

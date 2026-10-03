@@ -69,6 +69,13 @@ function isRoleAdministrateur(role) {
   return normalizeRole(role) === 'administrateur';
 }
 
+/** Accès Reporting Administrateur (KPI contrôleurs) — Patron + Direction/Directeur Opérations. */
+function canAccessReportingAdministrateur(role) {
+  if (!role) return false;
+  if (normalizeRole(role) === 'patron') return true;
+  return isRoleDirecteurOperations(role);
+}
+
 /** Peut assigner un dossier à un saisisseur (traitement B/L). */
 function canAssignSaisisseurDossier(role) {
   if (!role) return false;
@@ -113,6 +120,7 @@ module.exports = {
   isCallCenterRole,
   isChefExecutifOperationsRole,
   isRoleAdministrateur,
+  canAccessReportingAdministrateur,
   canAssignSaisisseurDossier,
   assigneeMatchesRoleCible
 };

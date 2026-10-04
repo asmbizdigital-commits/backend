@@ -156,7 +156,7 @@ async function getControleurProductivityStats(opts) {
     (byStatut['En cours'] || 0) +
     (byStatut['Terminée'] || 0);
 
-  // Terminées créées dans la période (pour cohérence taux) + terminées mises à jour
+  // Terminées assignées dans la période
   const [termineCreated] = await sequelize.query(
     `
     SELECT COUNT(*) AS n
@@ -170,16 +170,23 @@ async function getControleurProductivityStats(opts) {
   );
   const completedFromAssigned = Number(termineCreated?.n) || 0;
 
-  // Taux de traitement = achevés (sur assignations de la période) / assignés
-  // Fallback : totalCompleted / totalAssigned si utile
-  const treatmentBaseCompleted = completedFromAssigned || totalCompleted;
+  // Taux de traitement = achevés issus des assignations de la période / assignés
   const treatmentRate =
     totalAssigned > 0
-      ? Math.round((Math.min(treatmentBaseCompleted, totalAssigned) / totalAssigned) * 1000) / 10
+      ? Math.round((Math.min(completedFromAssigned, totalAssigned) / totalAssigned) * 1000) / 10
       : 0;
 
-  // SLA : % des terminaisons dont durée (created→updated) ≤ 40 min (SLA controle_validation)
+  // SLA métier : délai de contrôle = 24 heures (assignation → clôture)
+  const SLA_HOURS = 24;
+  const SLA_MINUTES = SLA_HOURS * 60;
+
   let slaPct = null;
+  let latePct = null;
+  let completedOnTime = 0;
+  let completedLate = 0;
+  let completedFromPriorPeriod = 0;
+  let avgDelayHours = null;
+
   try {
     const [slaRow] = await sequelize.query(
       `
@@ -187,24 +194,56 @@ async function getControleurProductivityStats(opts) {
         COUNT(*) AS total,
         SUM(
           CASE
-            WHEN TIMESTAMPDIFF(MINUTE, a.created_at, a.updated_at) <= 40 THEN 1
+            WHEN TIMESTAMPDIFF(MINUTE, a.created_at, a.updated_at) <= :slaMinutes THEN 1
             ELSE 0
           END
-        ) AS in_sla
+        ) AS in_sla,
+        SUM(
+          CASE
+            WHEN TIMESTAMPDIFF(MINUTE, a.created_at, a.updated_at) > :slaMinutes THEN 1
+            ELSE 0
+          END
+        ) AS late,
+        SUM(
+          CASE
+            WHEN a.created_at < :fromTs THEN 1
+            ELSE 0
+          END
+        ) AS from_prior,
+        AVG(TIMESTAMPDIFF(MINUTE, a.created_at, a.updated_at)) AS avg_minutes
       FROM tbl_assignation_bl_controleur a
       WHERE a.assignee_id = :userId
         AND a.statut = 'Terminée'
         AND a.updated_at >= :fromTs
         AND a.updated_at < :toTs
       `,
-      { replacements: { userId, fromTs, toTs }, type: QueryTypes.SELECT }
+      {
+        replacements: { userId, fromTs, toTs, slaMinutes: SLA_MINUTES },
+        type: QueryTypes.SELECT
+      }
     );
     const tot = Number(slaRow?.total) || 0;
-    const inSla = Number(slaRow?.in_sla) || 0;
-    slaPct = tot > 0 ? Math.round((inSla / tot) * 1000) / 10 : null;
+    completedOnTime = Number(slaRow?.in_sla) || 0;
+    completedLate = Number(slaRow?.late) || 0;
+    completedFromPriorPeriod = Number(slaRow?.from_prior) || 0;
+    const avgMin = Number(slaRow?.avg_minutes);
+    avgDelayHours =
+      Number.isFinite(avgMin) && tot > 0 ? Math.round((avgMin / 60) * 10) / 10 : null;
+    slaPct = tot > 0 ? Math.round((completedOnTime / tot) * 1000) / 10 : null;
+    latePct = tot > 0 ? Math.round((completedLate / tot) * 1000) / 10 : null;
   } catch (e) {
-    console.warn('[controleurKpi] SLA indisponible:', e.message);
+    console.warn('[controleurKpi] SLA 24h indisponible:', e.message);
   }
+
+  // Si achevés >> assignés période : rattrapage de stock → forte présomption hors délai
+  const priorPeriodSharePct =
+    totalCompleted > 0
+      ? Math.round((completedFromPriorPeriod / totalCompleted) * 1000) / 10
+      : 0;
+  const backlogCatchUp =
+    totalCompleted > totalAssigned ||
+    (totalAssigned > 0 && totalCompleted > totalAssigned * 1.15) ||
+    priorPeriodSharePct >= 30;
 
   return {
     controleur: {
@@ -224,12 +263,20 @@ async function getControleurProductivityStats(opts) {
       totalAssigned,
       totalCompleted,
       completedFromAssigned,
+      completedFromPriorPeriod,
+      priorPeriodSharePct,
       treatmentRate,
       workingDays,
       avgPerDay: Math.round(avgPerDay * 100) / 100,
       daysAtTarget28,
       regularitePct: Math.round(regularitePct * 10) / 10,
+      slaHours: SLA_HOURS,
       slaPct,
+      latePct,
+      completedOnTime,
+      completedLate,
+      avgDelayHours,
+      backlogCatchUp,
       byDay: days,
       assignationsByStatut: byStatut
     }

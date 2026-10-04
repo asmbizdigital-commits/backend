@@ -150,6 +150,62 @@ async function getControleurProductivityStats(opts) {
   const byStatut = {};
   for (const r of backlog || []) byStatut[r.statut] = Number(r.n) || 0;
 
+  // Total assigné sur la période (créés dans l’intervalle, hors annulées)
+  const totalAssigned =
+    (byStatut['Assignée'] || 0) +
+    (byStatut['En cours'] || 0) +
+    (byStatut['Terminée'] || 0);
+
+  // Terminées créées dans la période (pour cohérence taux) + terminées mises à jour
+  const [termineCreated] = await sequelize.query(
+    `
+    SELECT COUNT(*) AS n
+    FROM tbl_assignation_bl_controleur a
+    WHERE a.assignee_id = :userId
+      AND a.statut = 'Terminée'
+      AND a.created_at >= :fromTs
+      AND a.created_at < :toTs
+    `,
+    { replacements: { userId, fromTs, toTs }, type: QueryTypes.SELECT }
+  );
+  const completedFromAssigned = Number(termineCreated?.n) || 0;
+
+  // Taux de traitement = achevés (sur assignations de la période) / assignés
+  // Fallback : totalCompleted / totalAssigned si utile
+  const treatmentBaseCompleted = completedFromAssigned || totalCompleted;
+  const treatmentRate =
+    totalAssigned > 0
+      ? Math.round((Math.min(treatmentBaseCompleted, totalAssigned) / totalAssigned) * 1000) / 10
+      : 0;
+
+  // SLA : % des terminaisons dont durée (created→updated) ≤ 40 min (SLA controle_validation)
+  let slaPct = null;
+  try {
+    const [slaRow] = await sequelize.query(
+      `
+      SELECT
+        COUNT(*) AS total,
+        SUM(
+          CASE
+            WHEN TIMESTAMPDIFF(MINUTE, a.created_at, a.updated_at) <= 40 THEN 1
+            ELSE 0
+          END
+        ) AS in_sla
+      FROM tbl_assignation_bl_controleur a
+      WHERE a.assignee_id = :userId
+        AND a.statut = 'Terminée'
+        AND a.updated_at >= :fromTs
+        AND a.updated_at < :toTs
+      `,
+      { replacements: { userId, fromTs, toTs }, type: QueryTypes.SELECT }
+    );
+    const tot = Number(slaRow?.total) || 0;
+    const inSla = Number(slaRow?.in_sla) || 0;
+    slaPct = tot > 0 ? Math.round((inSla / tot) * 1000) / 10 : null;
+  } catch (e) {
+    console.warn('[controleurKpi] SLA indisponible:', e.message);
+  }
+
   return {
     controleur: {
       id: user.id,
@@ -165,11 +221,15 @@ async function getControleurProductivityStats(opts) {
     },
     period: { dateFrom, dateTo },
     productivity: {
+      totalAssigned,
       totalCompleted,
+      completedFromAssigned,
+      treatmentRate,
       workingDays,
       avgPerDay: Math.round(avgPerDay * 100) / 100,
       daysAtTarget28,
       regularitePct: Math.round(regularitePct * 10) / 10,
+      slaPct,
       byDay: days,
       assignationsByStatut: byStatut
     }

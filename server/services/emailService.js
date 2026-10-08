@@ -129,10 +129,15 @@ async function sendWelcomeUserEmail({ email, prenom, nom, role, motDePasse }) {
   }
 }
 
-const ASSIGNATION_BL_NOTIFY_TO = [
-  'javakikso@gmail.com',
-  'asmbizdigital@gmail.com'
-];
+/**
+ * Destinataires des notifications assignation B/L / export Sygrem.
+ * Liste volontairement vide (anciennes adresses retirées).
+ * Optionnel : ASSIGNATION_BL_NOTIFY_TO=email1,email2 dans .env
+ */
+const ASSIGNATION_BL_NOTIFY_TO = String(process.env.ASSIGNATION_BL_NOTIFY_TO || '')
+  .split(/[,;\s]+/)
+  .map((e) => e.trim().toLowerCase())
+  .filter((e) => e.includes('@'));
 
 /**
  * Notification d'assignation B/L (dossier attribué à un saisisseur).
@@ -151,6 +156,11 @@ async function sendAssignationBlNotificationEmail({
   if (!resend) {
     console.warn('[email] RESEND_API manquant — notification assignation non envoyée');
     return { sent: false, error: 'RESEND_API non configuré' };
+  }
+
+  if (!ASSIGNATION_BL_NOTIFY_TO.length) {
+    console.warn('[email] Aucun destinataire ASSIGNATION_BL_NOTIFY_TO — notification assignation non envoyée');
+    return { sent: false, error: 'Aucun destinataire configuré' };
   }
 
   const list = Array.isArray(dossiers) ? dossiers.filter(Boolean) : [];
@@ -296,7 +306,7 @@ async function sendAssignationBlNotificationEmail({
 
 /**
  * Notification : dossier exporté / envoyé vers Sygrem (Excel en pièces jointes).
- * Destinataires : javakikso@gmail.com, asmbizdigital@gmail.com
+ * Destinataires : ASSIGNATION_BL_NOTIFY_TO (env) — aucune adresse en dur.
  * @param {{ numeroDossier: string, attachments?: Array<{ fileName: string, buffer: Buffer|Uint8Array|ArrayBuffer }>, fileName?: string, excelBuffer?: Buffer }} opts
  * @returns {{ sent: boolean, error?: string, id?: string }}
  */
@@ -310,6 +320,11 @@ async function sendSygremExportNotificationEmail({
   if (!resend) {
     console.warn('[email] RESEND_API manquant — notification export Sygrem non envoyée');
     return { sent: false, error: 'RESEND_API non configuré' };
+  }
+
+  if (!ASSIGNATION_BL_NOTIFY_TO.length) {
+    console.warn('[email] Aucun destinataire ASSIGNATION_BL_NOTIFY_TO — notification export Sygrem non envoyée');
+    return { sent: false, error: 'Aucun destinataire configuré' };
   }
 
   const dossierLabel = String(numeroDossier || '').trim() || '—';

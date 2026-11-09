@@ -192,15 +192,30 @@ router.get('/check-table', async (req, res) => {
 // Helper function to generate complaint number
 const generateNumeroPlainte = async () => {
   const year = new Date().getFullYear();
-  const count = await Plainte.count({
+  const prefix = `PLAINTE-${year}-`;
+  // Ne pas utiliser COUNT+1 : les trous (suppressions) font collision avec un numéro déjà pris.
+  const latest = await Plainte.findOne({
     where: {
-      date_creation: {
-        [Op.gte]: new Date(`${year}-01-01`)
-      }
-    }
+      numero_plainte: { [Op.like]: `${prefix}%` }
+    },
+    attributes: ['numero_plainte'],
+    order: [['numero_plainte', 'DESC']]
   });
-  const numero = `PLAINTE-${year}-${String(count + 1).padStart(4, '0')}`;
-  return numero;
+  let next = 1;
+  if (latest?.numero_plainte) {
+    const match = String(latest.numero_plainte).match(/PLAINTE-\d{4}-(\d+)$/);
+    if (match) next = parseInt(match[1], 10) + 1;
+  }
+  // Sécurité concurrence : si le numéro existe déjà, avancer jusqu’au premier libre
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const numero = `${prefix}${String(next + attempt).padStart(4, '0')}`;
+    const exists = await Plainte.findOne({
+      where: { numero_plainte: numero },
+      attributes: ['id']
+    });
+    if (!exists) return numero;
+  }
+  return `${prefix}${String(Date.now()).slice(-8)}`;
 };
 
 async function attachTicketsAssocies(plaintes) {
@@ -582,13 +597,16 @@ router.post('/', [
     if (!Number.isNaN(n) && n >= 1) return true;
     throw new Error('bureau_international_id invalide');
   }),
-  body('date_incident').optional().isISO8601()
+  body('date_incident').optional({ checkFalsy: true }).isISO8601().withMessage('date_incident invalide'),
+  body('date_limite').optional({ checkFalsy: true }).isISO8601().withMessage('date_limite invalide')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ 
+      const first = errors.array()[0];
+      return res.status(400).json({
         error: 'Validation failed',
+        message: first?.msg || 'Données de plainte invalides',
         details: errors.array()
       });
     }

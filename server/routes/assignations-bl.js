@@ -18,6 +18,14 @@ const {
 const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
 
 const router = express.Router();
+
+/** Message lisible pour une erreur de validation (affiché tel quel dans le toast). */
+function validationMessage(errors) {
+  const fields = [...new Set(errors.array().map((e) => e.path || e.param).filter(Boolean))];
+  return fields.length
+    ? `Données invalides : ${fields.join(', ')}.`
+    : 'Données invalides.';
+}
 router.use(authenticateToken);
 
 function requireCanAssignSaisisseur(req, res, next) {
@@ -63,7 +71,7 @@ router.get(
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({ success: false, errors: errors.array() });
+        return res.status(400).json({ success: false, message: validationMessage(errors), errors: errors.array() });
       }
 
       const page = parseInt(req.query.page || '1', 10);
@@ -121,7 +129,7 @@ router.get(
 router.get('/:id', [param('id').isInt({ min: 1 })], async (req, res) => {
   try {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, message: validationMessage(errors), errors: errors.array() });
 
     const row = await AssignationBL.findByPk(req.params.id, {
       include: [
@@ -150,12 +158,12 @@ router.post(
     body('role_cible').optional().isIn(['Saisisseur']),
     body('priorite').optional().isIn(['Normale', 'Haute', 'Urgente']),
     body('date_limite').optional({ nullable: true, checkFalsy: true }).isISO8601(),
-    body('commentaire').optional().isString()
+    body('commentaire').optional({ nullable: true }).isString()
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+      if (!errors.isEmpty()) return res.status(400).json({ success: false, message: validationMessage(errors), errors: errors.array() });
 
       const ids = parsePositiveIntIds(
         req.body.connaissement_ids ?? req.body.bl_document_ids ?? []
@@ -346,13 +354,13 @@ router.put(
     body('assignee_id').optional().isInt({ min: 1 }),
     body('priorite').optional().isIn(['Normale', 'Haute', 'Urgente']),
     body('date_limite').optional({ nullable: true, checkFalsy: true }).isISO8601(),
-    body('commentaire').optional().isString(),
+    body('commentaire').optional({ nullable: true }).isString(),
     body('statut').optional().isIn(['Assignée', 'En cours', 'Terminée', 'Annulée'])
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+      if (!errors.isEmpty()) return res.status(400).json({ success: false, message: validationMessage(errors), errors: errors.array() });
 
       const row = await AssignationBL.findByPk(req.params.id);
       if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
@@ -423,7 +431,7 @@ router.put(
 router.delete('/:id', requireCanAssignSaisisseur, [param('id').isInt({ min: 1 })], async (req, res) => {
   try {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, message: validationMessage(errors), errors: errors.array() });
 
     const row = await AssignationBL.findByPk(req.params.id);
     if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });

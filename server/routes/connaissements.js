@@ -31,6 +31,7 @@ const {
   ingestUnifiedExtract,
   saveCommercialInvoiceItems
 } = require('../services/connaissementFicheAsmService');
+const { getActiveDelegationForUser } = require('../services/delegationAssignationService');
 const { sendSygremExportNotificationEmail } = require('../services/emailService');
 const DocsFeri = require('../models/DocsFeri');
 const DocsZip = require('../models/DocsZip');
@@ -640,7 +641,15 @@ async function ensureManagerBureauConnaissementAccess(req, docOrPk) {
       },
       attributes: ['id']
     });
-    if (!assignation) {
+    // Délégation d’assignation active : consultation (lecture seule) des dossiers de son bureau
+    let delegatedBureauOk = false;
+    if (!assignation && req.method === 'GET') {
+      const delegation = await getActiveDelegationForUser(req.user);
+      delegatedBureauOk =
+        Boolean(delegation) &&
+        Number(doc.bureauConnaissement ?? doc.bureau_connaissement) === Number(delegation.bureauInternationalId);
+    }
+    if (!assignation && !delegatedBureauOk) {
       return {
         allowed: false,
         status: 403,
@@ -1051,7 +1060,30 @@ router.get(
         }
       }
 
-      if (isSaisisseurViewer) {
+      const saisisseurDelegation = isSaisisseurViewer ? await getActiveDelegationForUser(req.user) : null;
+
+      if (isSaisisseurViewer && saisisseurDelegation) {
+        // Saisisseur délégataire : ses dossiers + tous ceux de son bureau (pour pouvoir assigner).
+        const assignRows = await AssignationBL.findAll({
+          where: {
+            assigneeId: req.user.id,
+            statut: { [Op.in]: ['Assignée', 'En cours', 'Terminée'] }
+          },
+          attributes: ['connaissementId']
+        });
+        const assignedIds = [...new Set(assignRows.map((r) => r.connaissementId).filter(Boolean))];
+        where[Op.and] = [
+          ...(Array.isArray(where[Op.and]) ? where[Op.and] : where[Op.and] ? [where[Op.and]] : []),
+          {
+            [Op.or]: [
+              { id: { [Op.in]: assignedIds.length ? assignedIds : [-1] } },
+              { bureauConnaissement: Number(saisisseurDelegation.bureauInternationalId) }
+            ]
+          }
+        ];
+      }
+
+      if (isSaisisseurViewer && !saisisseurDelegation) {
         const assignRows = await AssignationBL.findAll({
           where: {
             assigneeId: req.user.id,

@@ -16,6 +16,11 @@ const {
   managerBureauCanAccessConnaissement
 } = require('../utils/managerBureauConnaissementAccess');
 const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
+const {
+  getActiveDelegationForUser,
+  checkDelegatedAssignment
+} = require('../services/delegationAssignationService');
+const { sequelize } = require('../config/database');
 
 const router = express.Router();
 
@@ -37,6 +42,24 @@ function requireCanAssignSaisisseur(req, res, next) {
     });
   }
   return next();
+}
+
+/**
+ * Création d’assignation : rôles habilités OU saisisseur ayant une délégation active
+ * accordée par son Manager Bureau (conditions vérifiées dans la route).
+ */
+async function requireCanAssignOrDelegated(req, res, next) {
+  if (canAssignSaisisseurDossier(req.user?.role)) return next();
+  try {
+    const delegation = await getActiveDelegationForUser(req.user);
+    if (delegation) {
+      req.delegation = delegation;
+      return next();
+    }
+  } catch (err) {
+    console.error('[assignations-bl] lecture délégation échouée:', err.message);
+  }
+  return requireCanAssignSaisisseur(req, res, next);
 }
 
 const CHECKLIST_TEMPLATE = [
@@ -78,7 +101,29 @@ router.get(
       const limit = parseInt(req.query.limit || '100', 10);
       const offset = (page - 1) * limit;
       const where = {};
-      if (isSaisisseurRole(req.user?.role)) {
+      const delegationActive = isSaisisseurRole(req.user?.role)
+        ? await getActiveDelegationForUser(req.user)
+        : null;
+      if (delegationActive) {
+        // Saisisseur délégataire : ses assignations + celles des dossiers de son bureau
+        // (pour savoir quels dossiers sont déjà pris avant d’assigner).
+        const bureauId = parseInt(delegationActive.bureauInternationalId, 10);
+        where[Op.and] = [
+          {
+            [Op.or]: [
+              { assigneeId: req.user.id },
+              {
+                connaissementId: {
+                  [Op.in]: sequelize.literal(
+                    `(SELECT c.id FROM connaissements c WHERE c.bureau_connaissement = ${bureauId})`
+                  )
+                }
+              }
+            ]
+          }
+        ];
+        where.statut = { [Op.in]: ACTIVE_ASSIGN_STATUTS };
+      } else if (isSaisisseurRole(req.user?.role)) {
         // Un saisisseur ne voit que ses propres assignations.
         where.assigneeId = req.user.id;
         where.statut = { [Op.in]: ACTIVE_ASSIGN_STATUTS };
@@ -152,7 +197,7 @@ router.get('/:id', [param('id').isInt({ min: 1 })], async (req, res) => {
 
 router.post(
   '/',
-  requireCanAssignSaisisseur,
+  requireCanAssignOrDelegated,
   [
     body('assignee_id').isInt({ min: 1 }),
     body('role_cible').optional().isIn(['Saisisseur']),
@@ -208,6 +253,15 @@ router.post(
             });
           }
         }
+      }
+
+      if (req.delegation) {
+        const refus = await checkDelegatedAssignment(req.delegation, {
+          assignee,
+          connaissements: rows,
+          priorite
+        });
+        if (refus) return res.status(403).json({ success: false, message: refus, delegation_refus: true });
       }
 
       const existingBlocking = await AssignationBL.findAll({
@@ -285,7 +339,11 @@ router.post(
           assignationId: assignation.id,
           dossierRef: c.numeroDossier || null,
           blNumber: c.blNumber || null,
-          metadata: { roleCible, priorite }
+          metadata: {
+            roleCible,
+            priorite,
+            ...(req.delegation ? { delegation_id: req.delegation.id, par_delegation: true } : {})
+          }
         });
 
         created.push(assignation);

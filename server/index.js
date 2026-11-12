@@ -178,6 +178,7 @@ const bureauxInternationauxRoutes = require('./routes/bureaux-internationaux');
 const zonesRoutes = require('./routes/zones');
 const connaissementsRoutes = require('./routes/connaissements');
 const assignationsBLRoutes = require('./routes/assignations-bl');
+const delegationsAssignationRoutes = require('./routes/delegations-assignation');
 const assignationsBLControleurRoutes = require('./routes/assignations-bl-controleur');
 const connexionsResponsablesRoutes = require('./routes/connexions-responsables');
 const contentieuxDossiersRoutes = require('./routes/contentieux-dossiers');
@@ -520,6 +521,7 @@ app.use('/api/zones', zonesRoutes);
 app.use('/api/connaissements', connaissementsRoutes);
 app.use('/api/bl-documents', connaissementsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
+app.use('/api/delegations-assignation', delegationsAssignationRoutes);
 app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 app.use('/api/connexions-responsables', connexionsResponsablesRoutes);
 app.use('/api/contentieux-dossiers', contentieuxDossiersRoutes);
@@ -920,6 +922,39 @@ async function startServer() {
       console.log('✅ Table tbl_contentieux_dossiers prête.');
     } catch (err) {
       console.warn('⚠️ tbl_contentieux_dossiers:', err.message);
+    }
+
+    // tbl_delegations_assignation (Manager Bureau → Saisisseur : droit d’assigner temporaire)
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_delegations_assignation (
+          id INT(11) NOT NULL AUTO_INCREMENT,
+          delegataire_id INT(11) NOT NULL,
+          accorde_par_id INT(11) NOT NULL,
+          bureau_international_id INT(11) NOT NULL,
+          date_debut DATETIME NOT NULL,
+          date_fin DATETIME NOT NULL,
+          max_dossiers_par_jour INT(11) DEFAULT NULL,
+          max_dossiers_total INT(11) DEFAULT NULL,
+          priorites_autorisees JSON DEFAULT NULL,
+          portee ENUM('bureau','liste') NOT NULL DEFAULT 'bureau',
+          destinataire_ids JSON DEFAULT NULL,
+          peut_s_auto_assigner TINYINT(1) NOT NULL DEFAULT 1,
+          commentaire TEXT DEFAULT NULL,
+          revoque TINYINT(1) NOT NULL DEFAULT 0,
+          revoque_le DATETIME DEFAULT NULL,
+          revoque_par_id INT(11) DEFAULT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_deleg_delegataire (delegataire_id),
+          KEY idx_deleg_bureau (bureau_international_id),
+          KEY idx_deleg_periode (date_debut, date_fin)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `, { raw: true });
+      console.log('✅ Table tbl_delegations_assignation prête.');
+    } catch (err) {
+      console.warn('⚠️ tbl_delegations_assignation:', err.message);
     }
 
     // Démarrer le service de monitoring des stocks

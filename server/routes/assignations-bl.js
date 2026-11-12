@@ -356,6 +356,7 @@ router.put(
 
       const row = await AssignationBL.findByPk(req.params.id);
       if (!row) return res.status(404).json({ success: false, message: 'Assignation introuvable' });
+      const previousAssigneeId = row.assigneeId;
 
       if (req.body.assignee_id) {
         const a = await User.findByPk(parseInt(req.body.assignee_id, 10));
@@ -391,6 +392,22 @@ router.put(
             task.colonne_kanban = map[row.statut] || task.colonne_kanban;
           }
           await task.save();
+        }
+      }
+
+            // Réassignation : prévenir le nouvel assigné en temps réel (notification + bip)
+      if (req.body.assignee_id && Number(row.assigneeId) !== Number(previousAssigneeId)) {
+        try {
+          const doc = await Connaissement.findByPk(row.connaissementId);
+          await notifySaisisseurAssignation({
+            app: req.app,
+            assigneeId: row.assigneeId,
+            createdBy: req.user.id,
+            count: 1,
+            dossiersLabel: doc?.blNumber || doc?.numeroDossier || `#${row.connaissementId}`
+          });
+        } catch (notifErr) {
+          console.error('Réassignation notification realtime failed:', notifErr);
         }
       }
 

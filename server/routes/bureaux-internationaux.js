@@ -11,7 +11,7 @@ router.get('/', [
   query('statut').optional().isIn(['Actif', 'Inactif']),
   query('search').optional().isString(),
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 })
+  query('limit').optional().isInt({ min: 1, max: 500 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

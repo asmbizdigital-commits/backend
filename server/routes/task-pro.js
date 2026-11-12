@@ -240,148 +240,218 @@ const generateNumeroTache = async () => {
   return numero;
 };
 
-// GET /api/task-pro - Get all tasks with filters and pagination
+/* ------------------------------------------------------------------ */
+/* Liste / Kanban : filtres communs, catégorie de tâche, pagination    */
+/* ------------------------------------------------------------------ */
+
+const KANBAN_COLUMNS = ['À faire', 'En cours', 'En révision', 'Terminé', 'Bloqué', 'Annulé'];
+const DONE_COLUMNS = ['Terminé', 'Annulé'];
+
+/** Catégories métier (déduites des tables de liaison). */
+const TASK_CATEGORIES = ['traitement_dossier', 'controle_dossier', 'plainte', 'autre'];
+
+const SQL_IS_TRAITEMENT = 'SELECT 1 FROM tbl_assignations_bl ab WHERE ab.task_pro_id = `TaskPro`.`id`';
+const SQL_IS_CONTROLE = 'SELECT 1 FROM tbl_assignation_bl_controleur abc WHERE abc.task_pro_id = `TaskPro`.`id`';
+const SQL_IS_PLAINTE = 'SELECT 1 FROM tbl_plaintes_tickets_tasks ptt WHERE ptt.task_pro_id = `TaskPro`.`id`';
+
+/** Attributs calculés : catégorie de chaque tâche (renvoyée au client pour les badges). */
+const CATEGORY_ATTRIBUTES = [
+  [sequelize.literal(`EXISTS(${SQL_IS_TRAITEMENT})`), 'is_traitement_dossier'],
+  [sequelize.literal(`EXISTS(${SQL_IS_CONTROLE})`), 'is_controle_dossier'],
+  [sequelize.literal(`EXISTS(${SQL_IS_PLAINTE})`), 'is_plainte']
+];
+
+function categoryCondition(categorie) {
+  switch (categorie) {
+    case 'traitement_dossier':
+      return sequelize.literal(`EXISTS(${SQL_IS_TRAITEMENT})`);
+    case 'controle_dossier':
+      return sequelize.literal(`EXISTS(${SQL_IS_CONTROLE})`);
+    case 'plainte':
+      return sequelize.literal(`EXISTS(${SQL_IS_PLAINTE})`);
+    case 'autre':
+      return sequelize.literal(
+        `NOT EXISTS(${SQL_IS_TRAITEMENT}) AND NOT EXISTS(${SQL_IS_CONTROLE}) AND NOT EXISTS(${SQL_IS_PLAINTE})`
+      );
+    default:
+      return null;
+  }
+}
+
+function addAndCondition(whereClause, condition) {
+  if (!condition) return;
+  whereClause[Op.and] = [...(whereClause[Op.and] || []), condition];
+}
+
+/** Sérialise une tâche + sa catégorie métier. */
+function serializeTaskWithCategory(task) {
+  const json = task.toJSON();
+  const isTraitement = Boolean(Number(json.is_traitement_dossier));
+  const isControle = Boolean(Number(json.is_controle_dossier));
+  const isPlainte = Boolean(Number(json.is_plainte));
+  delete json.is_traitement_dossier;
+  delete json.is_controle_dossier;
+  delete json.is_plainte;
+  json.categorie = isControle
+    ? 'controle_dossier'
+    : isTraitement
+    ? 'traitement_dossier'
+    : isPlainte
+    ? 'plainte'
+    : 'autre';
+  return json;
+}
+
+/**
+ * Construit le where commun (liste + kanban) à partir de la query.
+ * statut_vue : in_progress | completed | overdue (filtré côté serveur pour des comptes justes).
+ */
+function buildTaskWhere(q) {
+  const whereClause = {
+    supprime: false,
+    archive: q.archive === 'true' || q.archive === true
+  };
+
+  const intParam = (v) => {
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  if (q.statut) whereClause.statut = q.statut;
+  if (q.colonne_kanban) whereClause.colonne_kanban = q.colonne_kanban;
+  if (q.priorite) whereClause.priorite = q.priorite;
+  if (q.type_tache) whereClause.type_tache = q.type_tache;
+  if (q.assignee_id && intParam(q.assignee_id) != null) whereClause.assignee_id = intParam(q.assignee_id);
+  if (q.createur_id && intParam(q.createur_id) != null) whereClause.createur_id = intParam(q.createur_id);
+  if (q.projet_id && intParam(q.projet_id) != null) whereClause.projet_id = intParam(q.projet_id);
+  if (q.departement_id && intParam(q.departement_id) != null) {
+    whereClause.departement_id = intParam(q.departement_id);
+  }
+
+  if (q.search && String(q.search).trim() !== '') {
+    const term = String(q.search).trim();
+    whereClause[Op.or] = [
+      { titre: { [Op.like]: `%${term}%` } },
+      { description: { [Op.like]: `%${term}%` } },
+      { numero_tache: { [Op.like]: `%${term}%` } }
+    ];
+  }
+
+  if (q.statut_vue === 'in_progress') {
+    addAndCondition(whereClause, { colonne_kanban: 'En cours' });
+  } else if (q.statut_vue === 'completed') {
+    addAndCondition(whereClause, { colonne_kanban: 'Terminé' });
+  } else if (q.statut_vue === 'overdue') {
+    addAndCondition(whereClause, {
+      date_echeance: { [Op.lt]: new Date() },
+      colonne_kanban: { [Op.notIn]: DONE_COLUMNS }
+    });
+  }
+
+  addAndCondition(whereClause, categoryCondition(q.categorie));
+  applyDateCreationRange(whereClause, q.date_from, q.date_to);
+  return whereClause;
+}
+
+const TASK_LIST_INCLUDES = [
+  { model: User, as: 'createur', attributes: ['id', 'nom', 'prenom', 'email'] },
+  { model: User, as: 'assignee', attributes: ['id', 'nom', 'prenom', 'email'] },
+  { model: Departement, as: 'departement', attributes: ['id', 'nom'] },
+  { model: SousDepartement, as: 'sous_departement', attributes: ['id', 'nom'] }
+];
+
+const TASK_ATTRIBUTES = { exclude: ['client_id'], include: CATEGORY_ATTRIBUTES };
+
+const COMMON_LIST_VALIDATORS = [
+  query('priorite').optional({ checkFalsy: true }).isIn(['Basse', 'Normale', 'Haute', 'Urgente']),
+  query('categorie').optional({ checkFalsy: true }).isIn(TASK_CATEGORIES),
+  query('statut_vue').optional({ checkFalsy: true }).isIn(['in_progress', 'completed', 'overdue']),
+  query('assignee_id').optional({ checkFalsy: true }).isInt(),
+  query('date_from').optional({ checkFalsy: true }).isISO8601(),
+  query('date_to').optional({ checkFalsy: true }).isISO8601()
+];
+
+function sendValidationError(res, errors) {
+  return res.status(400).json({
+    error: 'Validation failed',
+    message: 'Paramètres de filtre invalides',
+    details: errors.array()
+  });
+}
+
+/** Compte des tâches en retard pour un where donné (hors colonnes terminées). */
+function countOverdue(whereClause) {
+  return TaskPro.count({
+    where: {
+      ...whereClause,
+      [Op.and]: [
+        ...(whereClause[Op.and] || []),
+        { date_echeance: { [Op.lt]: new Date() } },
+        { colonne_kanban: { [Op.notIn]: DONE_COLUMNS } }
+      ]
+    }
+  });
+}
+
+const LIST_SORTS = {
+  date_creation: 'date_creation',
+  date_echeance: 'date_echeance',
+  priorite: 'priorite',
+  titre: 'titre',
+  numero_tache: 'numero_tache',
+  statut: 'colonne_kanban'
+};
+
+// GET /api/task-pro — liste paginée (vue Liste)
 router.get('/', [
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('statut').optional().isIn(['À faire', 'En cours', 'En révision', 'Terminé', 'Bloqué', 'Annulé']),
+  query('limit').optional().isInt({ min: 1, max: 200 }),
+  query('statut').optional({ checkFalsy: true }).isIn(KANBAN_COLUMNS),
   query('colonne_kanban').optional().isString(),
-  query('priorite').optional().isIn(['Basse', 'Normale', 'Haute', 'Urgente']),
-  query('assignee_id').optional().isInt(),
-  query('projet_id').optional().isInt()
+  query('projet_id').optional({ checkFalsy: true }).isInt(),
+  query('sort_by').optional({ checkFalsy: true }).isIn(Object.keys(LIST_SORTS)),
+  query('sort_dir').optional({ checkFalsy: true }).isIn(['asc', 'desc', 'ASC', 'DESC']),
+  ...COMMON_LIST_VALIDATORS
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        details: errors.array()
-      });
-    }
+    if (!errors.isEmpty()) return sendValidationError(res, errors);
 
-    const {
-      page = 1,
-      limit = 50,
-      statut,
-      colonne_kanban,
-      priorite,
-      assignee_id,
-      createur_id,
-      projet_id,
-      departement_id,
-      search,
-      archive = false,
-      view = 'kanban' // kanban, list, calendar
-    } = req.query;
-
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum = parseInt(req.query.page || '1', 10);
+    const limitNum = parseInt(req.query.limit || '25', 10);
     const offset = (pageNum - 1) * limitNum;
 
-    const whereClause = {
-      supprime: false,
-      archive: archive === 'true'
-    };
-
-    if (statut) {
-      whereClause.statut = statut;
+    const whereClause = buildTaskWhere(req.query);
+    const scope = await applyRoleTaskScopes(whereClause, req);
+    if (scope.empty) {
+      return res.json({ tasks: [], totalItems: 0, totalPages: 0, currentPage: pageNum, limit: limitNum });
     }
 
-    if (colonne_kanban) {
-      whereClause.colonne_kanban = colonne_kanban;
-    }
+    const sortField = LIST_SORTS[req.query.sort_by] || 'date_creation';
+    const sortDir = String(req.query.sort_dir || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const order = [[sortField, sortDir]];
+    if (sortField !== 'date_creation') order.push(['date_creation', 'DESC']);
 
-    if (priorite) {
-      whereClause.priorite = priorite;
-    }
-
-    if (assignee_id) {
-      const assigneeId = parseInt(assignee_id);
-      if (!isNaN(assigneeId)) {
-        whereClause.assignee_id = assigneeId;
-      }
-    }
-
-    if (createur_id) {
-      const createurId = parseInt(createur_id);
-      if (!isNaN(createurId)) {
-        whereClause.createur_id = createurId;
-      }
-    }
-
-    if (projet_id) {
-      const projetId = parseInt(projet_id);
-      if (!isNaN(projetId)) {
-        whereClause.projet_id = projetId;
-      }
-    }
-
-    if (departement_id) {
-      const deptId = parseInt(departement_id);
-      if (!isNaN(deptId)) {
-        whereClause.departement_id = deptId;
-      }
-    }
-
-    // Search functionality
-    if (search && search.trim() !== '') {
-      whereClause[Op.or] = [
-        { titre: { [Op.like]: `%${search.trim()}%` } },
-        { description: { [Op.like]: `%${search.trim()}%` } },
-        { numero_tache: { [Op.like]: `%${search.trim()}%` } }
-      ];
-    }
-
-    const { date_from, date_to } = req.query;
-    applyDateCreationRange(whereClause, date_from, date_to);
-    await applyRoleTaskScopes(whereClause, req);
-
-    // Order by position for Kanban view
-    const order = view === 'kanban' 
-      ? [['colonne_kanban', 'ASC'], ['position', 'ASC'], ['date_creation', 'DESC']]
-      : [['date_creation', 'DESC']];
-
-    const { count, rows: tasks } = await TaskPro.findAndCountAll({
+    const { count, rows } = await TaskPro.findAndCountAll({
       where: whereClause,
-      attributes: { exclude: ['client_id'] },
-      include: [
-        {
-          model: User,
-          as: 'createur',
-          attributes: ['id', 'nom', 'prenom', 'email']
-        },
-        {
-          model: User,
-          as: 'assignee',
-          attributes: ['id', 'nom', 'prenom', 'email']
-        },
-        {
-          model: Departement,
-          as: 'departement',
-          attributes: ['id', 'nom']
-        },
-        {
-          model: SousDepartement,
-          as: 'sous_departement',
-          attributes: ['id', 'nom']
-        }
-      ],
+      attributes: TASK_ATTRIBUTES,
+      include: TASK_LIST_INCLUDES,
       limit: limitNum,
-      offset: offset,
-      order: order
+      offset,
+      order,
+      distinct: true
     });
 
     res.json({
-      tasks: tasks.map(t => t.toJSON()),
+      tasks: rows.map(serializeTaskWithCategory),
       totalItems: count,
       totalPages: Math.ceil(count / limitNum),
       currentPage: pageNum,
       limit: limitNum
     });
-
   } catch (error) {
     console.error('Get tasks error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get tasks',
       message: 'Erreur lors de la récupération des tâches',
       details: error.message
@@ -389,95 +459,92 @@ router.get('/', [
   }
 });
 
-// GET /api/task-pro/kanban - Get tasks organized by Kanban columns
-router.get('/kanban', async (req, res) => {
+/**
+ * GET /api/task-pro/kanban — tableau paginé par colonne.
+ *  - limit_per_column (défaut 25, max 200) : nombre de cartes chargées par colonne.
+ *  - colonne + offset : « Charger plus » sur une seule colonne → { colonne, tasks, total, offset }.
+ * Réponse complète : { columns, counts, total, en_retard, limit_per_column }.
+ */
+router.get('/kanban', [
+  query('limit_per_column').optional().isInt({ min: 1, max: 200 }),
+  query('offset').optional().isInt({ min: 0 }),
+  query('colonne').optional({ checkFalsy: true }).isIn(KANBAN_COLUMNS),
+  ...COMMON_LIST_VALIDATORS
+], async (req, res) => {
   try {
-    const {
-      projet_id,
-      assignee_id,
-      archive = false,
-      priorite,
-      departement_id,
-      type_tache,
-      search,
-      date_from,
-      date_to
-    } = req.query;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return sendValidationError(res, errors);
 
-    const whereClause = {
-      supprime: false,
-      archive: archive === 'true' || archive === true
-    };
+    const limitPerColumn = parseInt(req.query.limit_per_column || '25', 10);
+    const offset = parseInt(req.query.offset || '0', 10);
+    const singleColumn = req.query.colonne || null;
 
-    if (projet_id) {
-      whereClause.projet_id = parseInt(projet_id);
-    }
-
-    if (assignee_id) {
-      whereClause.assignee_id = parseInt(assignee_id);
-    }
-
-    if (priorite) {
-      whereClause.priorite = priorite;
-    }
-
-    if (departement_id) {
-      const deptId = parseInt(departement_id);
-      if (!Number.isNaN(deptId)) whereClause.departement_id = deptId;
-    }
-
-    if (type_tache) {
-      whereClause.type_tache = type_tache;
-    }
-
-    if (search && String(search).trim() !== '') {
-      const term = String(search).trim();
-      whereClause[Op.or] = [
-        { titre: { [Op.like]: `%${term}%` } },
-        { description: { [Op.like]: `%${term}%` } },
-        { numero_tache: { [Op.like]: `%${term}%` } }
-      ];
-    }
-
-    applyDateCreationRange(whereClause, date_from, date_to);
+    const whereClause = buildTaskWhere(req.query);
     const scope = await applyRoleTaskScopes(whereClause, req);
     if (scope.empty) {
-      return res.json({ columns: emptyKanbanColumns() });
+      if (singleColumn) return res.json({ colonne: singleColumn, tasks: [], total: 0, offset });
+      const counts = Object.fromEntries(KANBAN_COLUMNS.map((c) => [c, 0]));
+      return res.json({
+        columns: emptyKanbanColumns(),
+        counts,
+        total: 0,
+        en_retard: 0,
+        limit_per_column: limitPerColumn
+      });
     }
 
-    const tasks = await TaskPro.findAll({
-      where: whereClause,
-      attributes: { exclude: ['client_id'] },
-      include: [
-        {
-          model: User,
-          as: 'createur',
-          attributes: ['id', 'nom', 'prenom', 'email']
+    const loadColumn = async (columnName, columnOffset) => {
+      const { count, rows } = await TaskPro.findAndCountAll({
+        // Comme l’ancien Kanban : colonne_kanban, ou à défaut le statut.
+        where: {
+          ...whereClause,
+          [Op.and]: [
+            ...(whereClause[Op.and] || []),
+            {
+              [Op.or]: [
+                { colonne_kanban: columnName },
+                { colonne_kanban: null, statut: columnName }
+              ]
+            }
+          ]
         },
-        {
-          model: User,
-          as: 'assignee',
-          attributes: ['id', 'nom', 'prenom', 'email']
-        }
-      ],
-      order: [['colonne_kanban', 'ASC'], ['position', 'ASC']]
-    });
+        attributes: TASK_ATTRIBUTES,
+        include: TASK_LIST_INCLUDES.slice(0, 2),
+        order: [['position', 'ASC'], ['date_creation', 'DESC']],
+        limit: limitPerColumn,
+        offset: columnOffset,
+        distinct: true
+      });
+      return { count, tasks: rows.map(serializeTaskWithCategory) };
+    };
 
-    // Organize tasks by columns
+    if (singleColumn) {
+      const { count, tasks } = await loadColumn(singleColumn, offset);
+      return res.json({ colonne: singleColumn, tasks, total: count, offset });
+    }
+
+    const [results, enRetard] = await Promise.all([
+      Promise.all(KANBAN_COLUMNS.map((c) => loadColumn(c, 0))),
+      countOverdue(whereClause)
+    ]);
+
     const columns = emptyKanbanColumns();
-
-    tasks.forEach(task => {
-      const column = task.colonne_kanban || task.statut;
-      if (columns[column]) {
-        columns[column].push(task.toJSON());
-      }
+    const counts = {};
+    KANBAN_COLUMNS.forEach((c, i) => {
+      columns[c] = results[i].tasks;
+      counts[c] = results[i].count;
     });
 
-    res.json({ columns });
-
+    res.json({
+      columns,
+      counts,
+      total: Object.values(counts).reduce((a, b) => a + b, 0),
+      en_retard: enRetard,
+      limit_per_column: limitPerColumn
+    });
   } catch (error) {
     console.error('Get kanban error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get kanban',
       message: 'Erreur lors de la récupération du tableau Kanban',
       details: error.message

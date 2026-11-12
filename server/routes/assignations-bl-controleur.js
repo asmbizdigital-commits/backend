@@ -16,6 +16,7 @@ const { responsableZoneCanAccessConnaissement } = require('../utils/responsableZ
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
 const { createTaskProWithUniqueNumero } = require('../utils/generateTaskProNumero');
+const { notifyControleurAssignation } = require('../services/assignationNotificationService');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -309,6 +310,22 @@ router.post(
         });
 
         created.push(assignation);
+      }
+
+      try {
+        const dossiersLabel =
+          connRows.length === 1
+            ? connRows[0].blNumber || connRows[0].numeroDossier || `#${connRows[0].id}`
+            : `${connRows.length} dossiers`;
+        await notifyControleurAssignation({
+          app: req.app,
+          assigneeId,
+          createdBy: req.user.id,
+          count: created.length,
+          dossiersLabel
+        });
+      } catch (notifErr) {
+        console.error('Assignation contrôle notification realtime failed:', notifErr);
       }
 
       emitChanged(req);

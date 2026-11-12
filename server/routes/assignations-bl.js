@@ -8,6 +8,7 @@ const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { parsePositiveIntIds } = require('../utils/connaissementIdList');
 const { sendAssignationBlNotificationEmail } = require('../services/emailService');
+const { notifySaisisseurAssignation } = require('../services/assignationNotificationService');
 const { logDossierActivity, ACTION_TYPES, personLabel } = require('../utils/dossierActivityLog');
 const { isSaisisseurRole, isCallCenterRole, canAssignSaisisseurDossier, isManagerBureauRole } = require('../utils/userRoles');
 const {
@@ -304,6 +305,22 @@ router.post(
       } catch (emailErr) {
         console.error('Assignation B/L email failed:', emailErr);
         emailResult = { sent: false, error: emailErr.message || 'Échec envoi email' };
+      }
+
+      try {
+        const dossiersLabel =
+          rows.length === 1
+            ? rows[0].blNumber || rows[0].numeroDossier || `#${rows[0].id}`
+            : `${rows.length} dossiers`;
+        await notifySaisisseurAssignation({
+          app: req.app,
+          assigneeId,
+          createdBy: req.user.id,
+          count: created.length,
+          dossiersLabel
+        });
+      } catch (notifErr) {
+        console.error('Assignation B/L notification realtime failed:', notifErr);
       }
 
       emitAssignationsChanged(req);

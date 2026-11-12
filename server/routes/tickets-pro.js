@@ -10,6 +10,10 @@ const User = require('../models/User');
 const DirectionProvinciale = require('../models/DirectionProvinciale');
 const BureauInternational = require('../models/BureauInternational');
 const { authenticateToken } = require('../middleware/auth');
+const {
+  nextTaskProNumeroTache,
+  isDuplicateNumeroTacheError
+} = require('../utils/generateTaskProNumero');
 
 const router = express.Router();
 
@@ -113,29 +117,31 @@ function buildPrefillFromPlainte(plainte) {
   };
 }
 
+/**
+ * Prochain numéro TICKET-YYYY-NNNN : max existant + 1 (et non count + 1, qui retombe
+ * sur un numéro déjà pris dès qu’un ticket a été supprimé).
+ */
 const generateNumeroTicket = async () => {
   const year = new Date().getFullYear();
-  const count = await TicketPro.count({
-    where: {
-      created_at: {
-        [Op.gte]: new Date(`${year}-01-01`)
-      }
-    }
-  });
-  return `TICKET-${year}-${String(count + 1).padStart(4, '0')}`;
+  const prefix = `TICKET-${year}-`;
+  const [[row]] = await sequelize.query(
+    `SELECT MAX(CAST(SUBSTRING(numero_ticket, :startPos) AS UNSIGNED)) AS maxSeq
+     FROM tbl_tickets_pro
+     WHERE numero_ticket LIKE :likePrefix`,
+    { replacements: { startPos: prefix.length + 1, likePrefix: `${prefix}%` } }
+  );
+  const next = (Number(row?.maxSeq) || 0) + 1;
+  return `${prefix}${String(next).padStart(Math.max(4, String(next).length), '0')}`;
 };
 
-const generateNumeroTache = async () => {
-  const year = new Date().getFullYear();
-  const count = await TaskPro.count({
-    where: {
-      date_creation: {
-        [Op.gte]: new Date(`${year}-01-01`)
-      }
-    }
-  });
-  return `TASK-${year}-${String(count + 1).padStart(4, '0')}`;
-};
+/** Numéro de tâche partagé avec les assignations B/L (max + 1, pas count + 1). */
+const generateNumeroTache = () => nextTaskProNumeroTache();
+
+function isDuplicateNumeroError(err) {
+  if (isDuplicateNumeroTacheError(err)) return true;
+  const msg = String(err?.message || err?.parent?.sqlMessage || '');
+  return msg.includes('numero_ticket');
+}
 
 const TICKET_TASK_CHECKLIST_LABELS = [
   'Réception et Enregistrement du Ticket',
@@ -266,14 +272,14 @@ router.post('/', [
       throw err;
     }
 
-    const numero_ticket = await generateNumeroTicket();
-    const numero_tache = await generateNumeroTache();
     const checklist = buildTicketTaskChecklist();
     const notesOuverture = req.body.notes_ouverture || null;
     const ticketTitre = req.body.titre.trim();
     const ticketPriorite = req.body.priorite || plainte.priorite || 'Normale';
 
-    const result = await sequelize.transaction(async (transaction) => {
+    // Numéros recalculés à chaque tentative : en cas de collision (création simultanée),
+    // la transaction est annulée et on réessaie avec les numéros suivants.
+    const createTicketAndTask = async (numero_ticket, numero_tache) => sequelize.transaction(async (transaction) => {
       const ticket = await TicketPro.create({
         numero_ticket,
         plainte_id: plainte.id,
@@ -336,6 +342,21 @@ router.post('/', [
       return { ticket, task, liaison };
     });
 
+    let result;
+    let lastDuplicateErr;
+    for (let attempt = 0; attempt < 8 && !result; attempt += 1) {
+      const numero_ticket = await generateNumeroTicket();
+      const numero_tache = await generateNumeroTache();
+      try {
+        result = await createTicketAndTask(numero_ticket, numero_tache);
+      } catch (err) {
+        if (!isDuplicateNumeroError(err)) throw err;
+        lastDuplicateErr = err;
+        console.warn(`POST /tickets-pro: numéro déjà pris (${numero_ticket} / ${numero_tache}), nouvel essai`);
+      }
+    }
+    if (!result) throw lastDuplicateErr || new Error('Numérotation ticket/tâche impossible');
+
     const created = await TicketPro.findByPk(result.ticket.id, {
       include: [
         { model: Plainte, as: 'plainte', attributes: ['id', 'numero_plainte', 'titre'] },
@@ -372,7 +393,11 @@ router.post('/', [
     });
   } catch (error) {
     console.error('POST /tickets-pro error:', error);
-    return res.status(500).json({ message: 'Erreur lors de la création du ticket' });
+    const detail = error?.parent?.sqlMessage || error?.errors?.[0]?.message || error?.message;
+    return res.status(500).json({
+      message: 'Erreur lors de la création du ticket',
+      detail: detail || undefined
+    });
   }
 });
 

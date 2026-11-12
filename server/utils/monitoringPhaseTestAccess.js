@@ -3,9 +3,7 @@
  */
 const MONITORING_PHASE_TEST_EMAILS = [
   'divine.kadima@africansm-rdc.com',
-  'van.sanza@africansm-rdc.com',
-  'kennedy.mukendi@africansm-rdc.com',
-  'kyele.maeva@africansm-rdc.com'
+  'kennedy.mukendi@africansm-rdc.com'
 ];
 
 function canAccessMonitoringPhaseTest(user) {

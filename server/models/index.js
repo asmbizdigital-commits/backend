@@ -94,6 +94,8 @@ const DocsControleBl = require('./DocsControleBl');
 const ConnexionResponsable = require('./ConnexionResponsable');
 const AssignationBL = require('./AssignationBL');
 const DelegationAssignation = require('./DelegationAssignation');
+const Notice = require('./Notice');
+const NoticeLecture = require('./NoticeLecture');
 const AssignationBLControleur = require('./AssignationBLControleur');
 const ContentieuxDossier = require('./ContentieuxDossier');
 // Alerte model removed
@@ -913,6 +915,10 @@ AssignationBL.belongsTo(User, { foreignKey: 'assigneeId', as: 'assignee' });
 DelegationAssignation.belongsTo(User, { foreignKey: 'delegataireId', as: 'delegataire' });
 DelegationAssignation.belongsTo(User, { foreignKey: 'accordeParId', as: 'accordePar' });
 DelegationAssignation.belongsTo(User, { foreignKey: 'revoqueParId', as: 'revoquePar' });
+Notice.belongsTo(User, { foreignKey: 'creeParId', as: 'creePar' });
+Notice.hasMany(NoticeLecture, { foreignKey: 'noticeId', as: 'lectures' });
+NoticeLecture.belongsTo(Notice, { foreignKey: 'noticeId', as: 'notice' });
+NoticeLecture.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 User.hasMany(AssignationBL, { foreignKey: 'assigneParId', as: 'assignationsBLCreees' });
 AssignationBL.belongsTo(User, { foreignKey: 'assigneParId', as: 'assignePar' });
 TaskPro.hasMany(AssignationBL, { foreignKey: 'taskProId', as: 'assignationsBL' });
@@ -969,6 +975,8 @@ BureauInternational.hasMany(Connaissement, {
 module.exports = {
   User,
   DelegationAssignation,
+  Notice,
+  NoticeLecture,
   Chambre,
   AffectationChambre,
   Problematique,

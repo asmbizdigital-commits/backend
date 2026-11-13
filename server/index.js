@@ -179,6 +179,7 @@ const zonesRoutes = require('./routes/zones');
 const connaissementsRoutes = require('./routes/connaissements');
 const assignationsBLRoutes = require('./routes/assignations-bl');
 const delegationsAssignationRoutes = require('./routes/delegations-assignation');
+const noticesRoutes = require('./routes/notices');
 const assignationsBLControleurRoutes = require('./routes/assignations-bl-controleur');
 const connexionsResponsablesRoutes = require('./routes/connexions-responsables');
 const contentieuxDossiersRoutes = require('./routes/contentieux-dossiers');
@@ -522,6 +523,7 @@ app.use('/api/connaissements', connaissementsRoutes);
 app.use('/api/bl-documents', connaissementsRoutes);
 app.use('/api/assignations-bl', assignationsBLRoutes);
 app.use('/api/delegations-assignation', delegationsAssignationRoutes);
+app.use('/api/notices', noticesRoutes);
 app.use('/api/assignations-bl-controleur', assignationsBLControleurRoutes);
 app.use('/api/connexions-responsables', connexionsResponsablesRoutes);
 app.use('/api/contentieux-dossiers', contentieuxDossiersRoutes);
@@ -955,6 +957,44 @@ async function startServer() {
       console.log('✅ Table tbl_delegations_assignation prête.');
     } catch (err) {
       console.warn('⚠️ tbl_delegations_assignation:', err.message);
+    }
+
+    // Notice board (messages Administrateur en popup) + accusés de lecture
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_notices (
+          id INT(11) NOT NULL AUTO_INCREMENT,
+          titre VARCHAR(200) NOT NULL,
+          message TEXT NOT NULL,
+          niveau ENUM('info','important','urgent') NOT NULL DEFAULT 'info',
+          cible_type ENUM('tous','bureau','role','utilisateurs') NOT NULL DEFAULT 'tous',
+          cible_bureau_ids JSON DEFAULT NULL,
+          cible_roles JSON DEFAULT NULL,
+          cible_user_ids JSON DEFAULT NULL,
+          date_debut DATETIME NOT NULL,
+          date_fin DATETIME DEFAULT NULL,
+          actif TINYINT(1) NOT NULL DEFAULT 1,
+          cree_par_id INT(11) NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_notices_periode (actif, date_debut, date_fin)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `, { raw: true });
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS tbl_notice_lectures (
+          id INT(11) NOT NULL AUTO_INCREMENT,
+          notice_id INT(11) NOT NULL,
+          user_id INT(11) NOT NULL,
+          lu_le DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_notice_lecture (notice_id, user_id),
+          KEY idx_notice_lectures_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `, { raw: true });
+      console.log('✅ Tables tbl_notices / tbl_notice_lectures prêtes.');
+    } catch (err) {
+      console.warn('⚠️ tbl_notices:', err.message);
     }
 
     // Démarrer le service de monitoring des stocks
